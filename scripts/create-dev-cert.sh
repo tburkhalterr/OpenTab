@@ -12,6 +12,12 @@ if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
   exit 0
 fi
 
+# System LibreSSL produces PKCS#12 files macOS `security` can import; Homebrew
+# OpenSSL 3 defaults to a MAC algorithm the keychain rejects.
+OPENSSL=/usr/bin/openssl
+[ -x "$OPENSSL" ] || OPENSSL=openssl
+P12_PASS=opentab
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -28,17 +34,15 @@ extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CFG
 
-openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+"$OPENSSL" req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -config "$TMP/cert.cfg" >/dev/null 2>&1
 
-openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-  -out "$TMP/identity.p12" -passout pass: -name "$CERT_NAME" >/dev/null 2>&1
+"$OPENSSL" pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
+  -out "$TMP/identity.p12" -passout "pass:$P12_PASS" -name "$CERT_NAME" >/dev/null 2>&1
 
-security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "" \
+security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASS" \
   -T /usr/bin/codesign -T /usr/bin/security
-
-# Allow codesign to use the key without an interactive prompt on each build.
-security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN" >/dev/null 2>&1 || true
 
 echo "Created code-signing certificate \"$CERT_NAME\"."
 echo "Now run: make run   (grant Accessibility once; it will persist afterwards)"
+echo "codesign may prompt once to use the key — click \"Always Allow\"."

@@ -2,9 +2,14 @@
 import Cocoa
 
 final class SwitcherPanel: NSPanel {
+    private let scrollView = NSScrollView()
     private let cellStack = NSStackView()
     private var cells: [SwitcherCell] = []
     private var windows: [WindowInfo] = []
+
+    private static let outerInset: CGFloat = 16
+    private static let maxWidthFraction: CGFloat = 0.92
+    private static let maxHeightFraction: CGFloat = 0.85
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 200, height: 140),
@@ -20,15 +25,19 @@ final class SwitcherPanel: NSPanel {
         contentView = makeContainer()
     }
 
-    func present(windows: [WindowInfo], layout: SwitcherLayout) {
+    func present(windows: [WindowInfo], layout: SwitcherLayout, density: SwitcherDensity) {
         self.windows = windows
+        let metrics = CellMetrics(layout: layout, density: density)
+
         cellStack.orientation = (layout == .list) ? .vertical : .horizontal
+        cellStack.spacing = metrics.stackSpacing
+        cellStack.edgeInsets = NSEdgeInsets(top: metrics.stackInset, left: metrics.stackInset,
+                                            bottom: metrics.stackInset, right: metrics.stackInset)
         cells.forEach { $0.removeFromSuperview() }
-        cells = windows.map { SwitcherCell(window: $0, layout: layout) }
+        cells = windows.map { SwitcherCell(window: $0, metrics: metrics) }
         cells.forEach { cellStack.addArrangedSubview($0) }
 
-        layoutIfNeeded()
-        sizeToFitActiveScreen()
+        resizeToContent()
         orderFrontRegardless()
     }
 
@@ -36,6 +45,9 @@ final class SwitcherPanel: NSPanel {
         for (i, cell) in cells.enumerated() {
             cell.setSelected(i == index)
         }
+        guard cells.indices.contains(index) else { return }
+        let cell = cells[index]
+        cell.scrollToVisible(cell.bounds.insetBy(dx: -60, dy: -60))
     }
 
     override var canBecomeKey: Bool { false }
@@ -47,36 +59,73 @@ final class SwitcherPanel: NSPanel {
         container.wantsLayer = true
         container.layer?.cornerRadius = 20
         container.layer?.masksToBounds = true
+        container.autoresizesSubviews = false
 
-        cellStack.spacing = 10
-        cellStack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
-        cellStack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(cellStack)
-
-        NSLayoutConstraint.activate([
-            cellStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            cellStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            cellStack.topAnchor.constraint(equalTo: container.topAnchor),
-            cellStack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.documentView = cellStack
+        cellStack.translatesAutoresizingMaskIntoConstraints = true
+        container.addSubview(scrollView)
         return container
     }
 
-    private func sizeToFitActiveScreen() {
-        let fitting = cellStack.fittingSize
+    private func resizeToContent() {
+        cellStack.layoutSubtreeIfNeeded()
+        let content = cellStack.fittingSize
+        cellStack.frame = NSRect(origin: .zero, size: content)
+
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        let width = min(fitting.width, screen.width - 40)
-        let size = NSSize(width: width, height: fitting.height)
-        setContentSize(size)
-        setFrameOrigin(NSPoint(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2))
+        let viewport = NSSize(width: min(content.width, screen.width * Self.maxWidthFraction),
+                              height: min(content.height, screen.height * Self.maxHeightFraction))
+        let inset = Self.outerInset
+        let total = NSSize(width: viewport.width + inset * 2, height: viewport.height + inset * 2)
+
+        setContentSize(total)
+        scrollView.frame = NSRect(x: inset, y: inset, width: viewport.width, height: viewport.height)
+        setFrameOrigin(NSPoint(x: screen.midX - total.width / 2, y: screen.midY - total.height / 2))
+    }
+}
+
+private struct CellMetrics {
+    let isList: Bool
+    let iconSize: CGFloat
+    let cellWidth: CGFloat
+    let titleSize: CGFloat
+    let titleLines: Int
+    let showSecondary: Bool
+    let contentPadding: CGFloat
+    let contentSpacing: CGFloat
+    let stackSpacing: CGFloat
+    let stackInset: CGFloat
+
+    init(layout: SwitcherLayout, density: SwitcherDensity) {
+        isList = layout == .list
+        let compact = density == .compact
+        showSecondary = !compact
+        titleLines = (isList || compact) ? 1 : 2
+        stackSpacing = compact ? 6 : 10
+        stackInset = compact ? 12 : 18
+        contentPadding = compact ? 6 : 10
+        titleSize = compact ? 11 : 12
+
+        switch (isList, compact) {
+        case (true, false):  iconSize = 32; cellWidth = 340; contentSpacing = 12
+        case (true, true):   iconSize = 20; cellWidth = 260; contentSpacing = 9
+        case (false, false): iconSize = 60; cellWidth = 150; contentSpacing = 8
+        case (false, true):  iconSize = 34; cellWidth = 104; contentSpacing = 6
+        }
     }
 }
 
 private final class SwitcherCell: NSView {
     private let highlight = NSView()
     private let titleLabel: NSTextField
+    private let metrics: CellMetrics
 
-    init(window: WindowInfo, layout: SwitcherLayout) {
+    init(window: WindowInfo, metrics: CellMetrics) {
+        self.metrics = metrics
         self.titleLabel = NSTextField(labelWithString: window.title)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -89,33 +138,30 @@ private final class SwitcherCell: NSView {
         highlight.translatesAutoresizingMaskIntoConstraints = false
         addSubview(highlight)
 
-        let isList = layout == .list
         let iconView = makeIconView(window.icon)
-        let textStack = makeTextStack(window: window, centered: !isList)
+        let textStack = makeTextStack(window: window)
 
         let content = NSStackView(views: [iconView, textStack])
-        content.orientation = isList ? .horizontal : .vertical
-        content.alignment = isList ? .centerY : .centerX
-        content.spacing = isList ? 12 : 8
+        content.orientation = metrics.isList ? .horizontal : .vertical
+        content.alignment = metrics.isList ? .centerY : .centerX
+        content.spacing = metrics.contentSpacing
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
 
-        let iconSize: CGFloat = isList ? 32 : 60
+        let pad = metrics.contentPadding
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: iconSize),
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
+            content.topAnchor.constraint(equalTo: topAnchor, constant: pad),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: pad + 2),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(pad + 2)),
             highlight.topAnchor.constraint(equalTo: topAnchor),
             highlight.bottomAnchor.constraint(equalTo: bottomAnchor),
             highlight.leadingAnchor.constraint(equalTo: leadingAnchor),
             highlight.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
-
-        let width: CGFloat = isList ? 340 : 150
-        widthAnchor.constraint(equalToConstant: width).isActive = true
+        widthAnchor.constraint(equalToConstant: metrics.cellWidth).isActive = true
     }
 
     private func makeIconView(_ icon: NSImage?) -> NSImageView {
@@ -126,18 +172,20 @@ private final class SwitcherCell: NSView {
         return view
     }
 
-    private func makeTextStack(window: WindowInfo, centered: Bool) -> NSStackView {
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+    private func makeTextStack(window: WindowInfo) -> NSStackView {
+        titleLabel.font = .systemFont(ofSize: metrics.titleSize, weight: .medium)
         titleLabel.textColor = .labelColor
-        titleLabel.alignment = centered ? .center : .natural
+        titleLabel.alignment = metrics.isList ? .natural : .center
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = centered ? 2 : 1
+        titleLabel.maximumNumberOfLines = metrics.titleLines
 
         let stack = NSStackView(views: [titleLabel])
         stack.orientation = .vertical
-        stack.alignment = centered ? .centerX : .leading
+        stack.alignment = metrics.isList ? .leading : .centerX
         stack.spacing = 2
         stack.translatesAutoresizingMaskIntoConstraints = false
+
+        guard metrics.showSecondary else { return stack }
 
         if window.appName != window.title {
             stack.addArrangedSubview(label(window.appName, size: 10, color: .secondaryLabelColor))
@@ -155,7 +203,7 @@ private final class SwitcherCell: NSView {
         let field = NSTextField(labelWithString: text)
         field.font = .systemFont(ofSize: size)
         field.textColor = color
-        field.alignment = .center
+        field.alignment = metrics.isList ? .natural : .center
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         return field
@@ -169,7 +217,7 @@ private final class SwitcherCell: NSView {
 
     func setSelected(_ selected: Bool) {
         highlight.isHidden = !selected
-        titleLabel.font = .systemFont(ofSize: 12, weight: selected ? .semibold : .medium)
+        titleLabel.font = .systemFont(ofSize: metrics.titleSize, weight: selected ? .semibold : .medium)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requestAccessibilityPermission()
+        requestScreenRecordingPermission()
         MRUTracker.shared.start()
         setupStatusItem()
         reloadHotKeys()
@@ -28,6 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func requestAccessibilityPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         return AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+
+    // Window titles on other Spaces are only available from CGWindowList with
+    // Screen Recording permission; AX alone covers just the current Space.
+    private func requestScreenRecordingPermission() {
+        if !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess()
+        }
     }
 
     private func setupStatusItem() {
@@ -67,5 +76,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-
 }

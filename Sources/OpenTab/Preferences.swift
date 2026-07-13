@@ -19,6 +19,20 @@ enum SwitcherLayout: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum SwitcherDensity: String, CaseIterable, Codable, Identifiable {
+    case normal
+    case compact
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .normal:  return "Normal"
+        case .compact: return "Compact"
+        }
+    }
+}
+
 enum WindowScope: String, CaseIterable, Codable, Identifiable {
     case allScreens
     case activeScreen
@@ -35,6 +49,7 @@ enum WindowScope: String, CaseIterable, Codable, Identifiable {
 
 struct Preferences: Codable, Equatable {
     var layout: SwitcherLayout = .appGrid
+    var density: SwitcherDensity = .normal
     var scope: WindowScope = .allScreens
     var showMinimizedWindows: Bool = true
     var showHiddenApps: Bool = false

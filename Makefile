@@ -7,9 +7,15 @@ APP_BUNDLE  = $(APP_NAME).app
 CONTENTS    = $(APP_BUNDLE)/Contents
 
 # A stable signing identity lets macOS remember the Accessibility grant across
-# rebuilds. Falls back to ad-hoc ("-") if the dev cert is absent (grant resets
-# each build in that case). Create the cert once with `make cert`.
-SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q "OpenTab Dev" && echo "OpenTab Dev" || echo "-")
+# rebuilds. The self-signed dev cert is untrusted (CSSMERR_TP_NOT_TRUSTED), which
+# codesign and TCC accept, so we match by hash without the `-v` (valid-only)
+# filter and fall back to ad-hoc ("-") when it is absent. Create it with `make cert`.
+# Sort so the same hash is chosen every build even if several "OpenTab Dev"
+# certs exist and `find-identity` returns them in a non-deterministic order.
+SIGN_ID := $(shell security find-identity -p codesigning 2>/dev/null | awk '/OpenTab Dev/{print $$2}' | sort | head -1)
+ifeq ($(SIGN_ID),)
+SIGN_ID := -
+endif
 
 .PHONY: all build app sign run clean cert
 

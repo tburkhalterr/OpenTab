@@ -40,7 +40,7 @@ final class SwitcherController {
         isActive = true
 
         let panel = panel ?? makePanel()
-        panel.present(windows: windows, layout: prefs.layout)
+        panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
         panel.highlight(index: selectedIndex)
         startReleaseWatch()
     }

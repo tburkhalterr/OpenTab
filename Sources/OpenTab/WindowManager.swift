@@ -24,8 +24,11 @@ enum WindowManager {
     // Cap AX round-trips so an unresponsive app cannot stall the switcher.
     private static let axTimeout: Float = 0.25
 
+    // Tab bars / title-bar accessories are short strips; drop them when no AX
+    // subrole is available to identify a real window (off-Space or no permission).
+    private static let minChromeStripHeight: CGFloat = 100
+
     private struct AXEntry {
-        let pid: pid_t
         let element: AXUIElement
         let title: String?
         let minimized: Bool
@@ -34,16 +37,92 @@ enum WindowManager {
         let icon: NSImage?
     }
 
+    /// The window universe comes from CGWindowList in `optionAll` mode, which
+    /// spans every Space (unlike AX, which only reports the current Space).
+    /// AX then enriches current-Space windows with real titles and per-window
+    /// elements; off-Space windows fall back to their CG name / app name.
     static func listWindows(preferences: Preferences) -> [WindowInfo] {
         let ax = axIndex()
-        let onScreen = MRUTracker.shared.ordered(onScreenWindows(ax: ax))
-        var result = applyScope(preferences.scope, to: onScreen)
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        let regularPIDs = Set(apps.map(\.processIdentifier))
+        let hiddenPIDs = Set(apps.filter(\.isHidden).map(\.processIdentifier))
+        let appByPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
 
-        if preferences.showMinimizedWindows || preferences.showHiddenApps {
-            let known = Set(onScreen.map(\.id))
-            result.append(contentsOf: offScreenWindows(ax: ax, excluding: known, preferences: preferences))
+        let geometry = currentSpaceGeometry()
+        let currentSpaceIDs = Set(geometry.keys)
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+
+        guard let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return []
         }
-        return result
+
+        var seen = Set<CGWindowID>()
+        var windows: [WindowInfo] = []
+
+        for entry in raw {
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+                  let id = entry[kCGWindowNumber as String] as? CGWindowID, seen.insert(id).inserted,
+                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  pid != ownPID, regularPIDs.contains(pid),
+                  let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
+                continue
+            }
+
+            let axEntry = ax[id]
+            let app = appByPID[pid]
+            let onScreen = currentSpaceIDs.contains(id)
+            let minimized = axEntry?.minimized ?? false
+            let hidden = axEntry?.appHidden ?? hiddenPIDs.contains(pid)
+
+            if axEntry == nil {
+                // AX fully covers the current Space, so a current-Space window it
+                // omits is chrome; off-Space windows just aren't in AX at all.
+                if !ax.isEmpty && onScreen { continue }
+                if bounds.height < minChromeStripHeight { continue }
+            } else if !onScreen && !minimized && !hidden {
+                // A current-Space standard window that is not on screen is a
+                // background native tab; collapse it.
+                continue
+            }
+
+            if minimized && !preferences.showMinimizedWindows { continue }
+            if hidden && !preferences.showHiddenApps { continue }
+
+            let appName = axEntry?.appName ?? app?.localizedName
+                ?? entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
+            // A window with no real title that AX doesn't expose as a standard
+            // window is a hidden helper window (fixed 500×500 placeholder, etc.).
+            let realTitle = nonEmpty(axEntry?.title) ?? nonEmpty(entry[kCGWindowName as String] as? String)
+            if realTitle == nil && axEntry == nil { continue }
+            let title = realTitle ?? appName
+
+            windows.append(WindowInfo(id: id, pid: pid, title: title, appName: appName,
+                                      icon: axEntry?.icon ?? app?.icon, bounds: bounds,
+                                      isMinimized: minimized, isHidden: hidden,
+                                      windowCount: 1, axElement: axEntry?.element))
+        }
+
+        let ordered = windows.sorted { lhs, rhs in
+            let l = geometry[lhs.id]?.order ?? Int.max
+            let r = geometry[rhs.id]?.order ?? Int.max
+            if l != r { return l < r }
+            return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
+        }
+
+        return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseNativeTabs(ordered)))
+    }
+
+    // Native tabs on other Spaces can't be spotted via AX (current-Space only),
+    // but every tab in a group shares the exact same frame, so one window per
+    // (app, frame) collapses them.
+    private static func collapseNativeTabs(_ windows: [WindowInfo]) -> [WindowInfo] {
+        var seen = Set<String>()
+        return windows.filter { window in
+            let key = "\(window.pid):\(Int(window.bounds.minX)):\(Int(window.bounds.minY))"
+                + ":\(Int(window.bounds.width)):\(Int(window.bounds.height))"
+            return seen.insert(key).inserted
+        }
     }
 
     static func focus(_ window: WindowInfo) {
@@ -51,15 +130,32 @@ enum WindowManager {
         let app = NSRunningApplication(processIdentifier: window.pid)
         if window.isHidden { app?.unhide() }
 
-        if let axWindow = window.axElement {
-            AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        // Off-Space windows have no AX element: switch the visible Space to the
+        // window's Space first, then it becomes reachable and we raise it.
+        if window.axElement == nil {
+            CrossSpaceFocus.switchToSpace(of: window.id)
         }
-        app?.activate(options: [.activateIgnoringOtherApps])
+
+        if #available(macOS 14.0, *) {
+            app?.activate()
+        } else {
+            app?.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        if let axWindow = window.axElement ?? axWindow(pid: window.pid, id: window.id) {
+            AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        }
     }
 
-    // MARK: - AX window index (real titles, minimized state, per-window element)
+    private static func axWindow(pid: pid_t, id: CGWindowID) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, axTimeout)
+        return copyWindows(of: app)?.first { windowID(of: $0) == id }
+    }
+
+    // MARK: - AX window index (current Space: real titles + per-window element)
 
     private static func axIndex() -> [CGWindowID: AXEntry] {
         var index: [CGWindowID: AXEntry] = [:]
@@ -72,7 +168,7 @@ enum WindowManager {
             let appName = app.localizedName ?? "Unknown"
             for axWindow in axWindows {
                 guard let id = windowID(of: axWindow), isStandardWindow(axWindow) else { continue }
-                index[id] = AXEntry(pid: app.processIdentifier, element: axWindow,
+                index[id] = AXEntry(element: axWindow,
                                     title: stringValue(axWindow, kAXTitleAttribute),
                                     minimized: boolValue(axWindow, kAXMinimizedAttribute),
                                     appHidden: app.isHidden, appName: appName, icon: app.icon)
@@ -81,62 +177,27 @@ enum WindowManager {
         return index
     }
 
-    // MARK: - On-screen windows (CGWindowList gives front-to-back order + bounds)
+    // MARK: - Current-Space geometry (bounds + front-to-back order)
 
-    private static func onScreenWindows(ax: [CGWindowID: AXEntry]) -> [WindowInfo] {
+    private static func currentSpaceGeometry() -> [CGWindowID: (bounds: CGRect, order: Int)] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return []
+            return [:]
         }
 
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        let hasAX = !ax.isEmpty
-        var iconCache: [pid_t: NSImage?] = [:]
-
-        return raw.compactMap { entry in
+        var map: [CGWindowID: (CGRect, Int)] = [:]
+        var order = 0
+        for entry in raw {
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
                   let id = entry[kCGWindowNumber as String] as? CGWindowID,
-                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                   let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
                   let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
-                return nil
+                continue
             }
-
-            // With AX available, keep only windows the app exposes as standard
-            // windows; this drops tab-bar / title-bar accessory windows.
-            if hasAX && ax[id] == nil { return nil }
-
-            let appName = entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
-            let cgName = nonEmpty(entry[kCGWindowName as String] as? String)
-            let title = nonEmpty(ax[id]?.title) ?? cgName ?? appName
-            let icon = iconCache[pid] ?? {
-                let image = NSRunningApplication(processIdentifier: pid)?.icon
-                iconCache[pid] = image
-                return image
-            }()
-
-            return WindowInfo(id: id, pid: pid, title: title, appName: appName, icon: icon,
-                              bounds: bounds, isMinimized: false, isHidden: false,
-                              windowCount: 1, axElement: ax[id]?.element)
+            map[id] = (bounds, order)
+            order += 1
         }
-    }
-
-    // MARK: - Off-screen windows (minimized windows + hidden apps)
-
-    private static func offScreenWindows(ax: [CGWindowID: AXEntry], excluding known: Set<CGWindowID>,
-                                         preferences: Preferences) -> [WindowInfo] {
-        ax.compactMap { id, entry -> WindowInfo? in
-            guard !known.contains(id) else { return nil }
-            let include = (entry.minimized && preferences.showMinimizedWindows)
-                || (entry.appHidden && preferences.showHiddenApps)
-            guard include else { return nil }
-
-            let title = nonEmpty(entry.title) ?? entry.appName
-            return WindowInfo(id: id, pid: entry.pid, title: title, appName: entry.appName, icon: entry.icon,
-                              bounds: .zero, isMinimized: entry.minimized, isHidden: entry.appHidden,
-                              windowCount: 1, axElement: entry.element)
-        }
-        .sorted { ($0.appName, $0.title) < ($1.appName, $1.title) }
+        return map
     }
 
     // MARK: - Accessibility helpers
