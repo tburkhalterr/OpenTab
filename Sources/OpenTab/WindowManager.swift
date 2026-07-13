@@ -2,8 +2,8 @@
 import Cocoa
 import ApplicationServices
 
-/// Private AX SPI used to bridge an AXUIElement window to its CGWindowID.
-/// AltTab and other switchers rely on the same symbol; there is no public API.
+// No public API maps an AXUIElement window to its CGWindowID; AltTab and other
+// switchers rely on this same private symbol.
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
 
@@ -13,51 +13,49 @@ struct WindowInfo: Identifiable {
     let title: String
     let appName: String
     let icon: NSImage?
+    let bounds: CGRect
 }
 
 enum WindowManager {
-    /// On-screen, user-facing windows in front-to-back order (as CGWindowList reports them).
-    static func listWindows() -> [WindowInfo] {
+    static func listWindows(scope: WindowScope = .allScreens) -> [WindowInfo] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
 
-        var seenPIDIcons: [pid_t: NSImage?] = [:]
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        var iconCache: [pid_t: NSImage?] = [:]
 
-        return raw.compactMap { entry -> WindowInfo? in
+        let windows = raw.compactMap { entry -> WindowInfo? in
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
-                  let windowID = entry[kCGWindowNumber as String] as? CGWindowID,
-                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t else {
+                  let id = entry[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
+                  let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
                 return nil
             }
 
             let appName = entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
             let title = entry[kCGWindowName as String] as? String ?? appName
+            let icon = iconCache[pid] ?? {
+                let image = NSRunningApplication(processIdentifier: pid)?.icon
+                iconCache[pid] = image
+                return image
+            }()
 
-            // Skip our own switcher and untitled chrome windows.
-            if pid == ProcessInfo.processInfo.processIdentifier { return nil }
-
-            let icon: NSImage?
-            if let cached = seenPIDIcons[pid] {
-                icon = cached
-            } else {
-                icon = NSRunningApplication(processIdentifier: pid)?.icon
-                seenPIDIcons[pid] = icon
-            }
-
-            return WindowInfo(id: windowID, pid: pid, title: title, appName: appName, icon: icon)
+            return WindowInfo(id: id, pid: pid, title: title, appName: appName, icon: icon, bounds: bounds)
         }
+
+        return applyScope(scope, to: windows)
     }
 
-    /// Raises the given window and activates its owning application.
     static func focus(_ window: WindowInfo) {
-        let appElement = AXUIElementCreateApplication(window.pid)
+        let app = AXUIElementCreateApplication(window.pid)
         var value: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
 
-        if result == .success, let axWindows = value as? [AXUIElement] {
-            for axWindow in axWindows where matches(axWindow, window.id) {
+        if AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+           let axWindows = value as? [AXUIElement] {
+            for axWindow in axWindows where windowID(of: axWindow) == window.id {
                 AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
                 AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
                 break
@@ -68,8 +66,28 @@ enum WindowManager {
             .activate(options: [.activateIgnoringOtherApps])
     }
 
-    private static func matches(_ axWindow: AXUIElement, _ windowID: CGWindowID) -> Bool {
+    private static func windowID(of element: AXUIElement) -> CGWindowID? {
         var id: CGWindowID = 0
-        return _AXUIElementGetWindow(axWindow, &id) == .success && id == windowID
+        return _AXUIElementGetWindow(element, &id) == .success ? id : nil
+    }
+
+    private static func applyScope(_ scope: WindowScope, to windows: [WindowInfo]) -> [WindowInfo] {
+        guard scope == .activeScreen, let screenRect = activeScreenRectInCGSpace() else {
+            return windows
+        }
+        return windows.filter { $0.bounds.intersects(screenRect) }
+    }
+
+    // CGWindow bounds use a top-left origin anchored to the primary display,
+    // whereas NSScreen frames are bottom-left, so the y axis must be flipped.
+    private static func activeScreenRectInCGSpace() -> CGRect? {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),
+              let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height else {
+            return nil
+        }
+        let frame = screen.frame
+        return CGRect(x: frame.origin.x, y: primaryHeight - frame.maxY,
+                      width: frame.width, height: frame.height)
     }
 }

@@ -4,25 +4,27 @@ A free, open-source, MIT-licensed **AltTab-style window switcher for macOS**.
 Hold <kbd>⌥ Option</kbd> and press <kbd>⇥ Tab</kbd> to cycle through your open
 windows; release Option to focus the highlighted one.
 
-> Status: **working skeleton (v0.1)** — core switching works. The richer AltTab
-> features (view modes, per-app/per-screen scopes, rebindable keys, live
-> thumbnails) are scaffolded and tracked in the roadmap below.
+> Status: **v0.1** — core switching, a settings window, view modes and a
+> rebindable shortcut work. Live thumbnails and the remaining scopes are on the
+> roadmap below.
 
 ## Features
 
 Working now:
-- Global <kbd>⌥</kbd>+<kbd>⇥</kbd> / <kbd>⌥⇧</kbd>+<kbd>⇥</kbd> window cycling (forward / backward)
-- HUD panel with app icon + window title per entry
+- Global window cycling — default <kbd>⌥</kbd>+<kbd>⇥</kbd> forward, <kbd>⌥⇧</kbd>+<kbd>⇥</kbd> backward
 - Raises the exact window (not just the app) via the Accessibility API
+- HUD panel with app icon + window title per entry
+- **Settings window** (menu bar → Settings…, or <kbd>⌘</kbd>+<kbd>,</kbd>):
+  - **View mode** — app grid, list, or one entry per app
+  - **Scope** — all screens or active screen
+  - **Rebindable shortcut** — record any modifier + key combo
 - Menu-bar item, no Dock icon
 
-Scaffolded (see `Preferences.swift`) and on the roadmap:
-- **Keybindings** — rebindable trigger key & modifier (stored as keyCode + mask)
-- **List view** — vertical icon+title rows (`SwitcherLayout.list`)
-- **App view** — one entry per window / thumbnails (`SwitcherLayout.appGrid`)
-- **App-only view** — collapse an app's windows into one entry (`SwitcherLayout.appOnly`)
-- **Screen / space scope** — all screens, active screen, or current space (`WindowScope`)
-- Live window thumbnails, minimized/hidden windows, fuzzy search
+Roadmap:
+- Live window thumbnails
+- `activeSpace` scope + `appOnly` collapsing
+- Minimized / hidden-window inclusion
+- Fuzzy search while the switcher is open
 
 ## Build from source
 

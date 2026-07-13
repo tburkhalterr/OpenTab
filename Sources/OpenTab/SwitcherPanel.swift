@@ -1,9 +1,6 @@
 // Sources/OpenTab/SwitcherPanel.swift
 import Cocoa
 
-/// A borderless, non-activating panel that draws the window entries.
-/// The layout is a horizontal row of icon+title cells (the `.appGrid` mode);
-/// `.list` and `.appOnly` reuse the same cells with different stacking.
 final class SwitcherPanel: NSPanel {
     private let stack = NSStackView()
     private var cells: [SwitcherCell] = []
@@ -70,7 +67,6 @@ final class SwitcherPanel: NSPanel {
     override var canBecomeKey: Bool { false }
 }
 
-/// One entry: application icon plus a truncated title.
 private final class SwitcherCell: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")

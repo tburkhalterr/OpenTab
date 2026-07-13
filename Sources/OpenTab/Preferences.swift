@@ -1,44 +1,76 @@
 // Sources/OpenTab/Preferences.swift
+import Carbon.HIToolbox
+import Combine
 import Foundation
 
-/// How the switcher lays out its entries. Mirrors AltTab's view modes.
-enum SwitcherLayout: String, CaseIterable, Codable {
-    case appGrid    // thumbnails / icons in a horizontal row, one cell per window
-    case list       // vertical list, icon + title per row
-    case appOnly    // one cell per application (collapses that app's windows)
+enum SwitcherLayout: String, CaseIterable, Codable, Identifiable {
+    case appGrid
+    case list
+    case appOnly
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .appGrid: return "App grid (thumbnails)"
+        case .list:    return "List"
+        case .appOnly: return "One entry per app"
+        }
+    }
 }
 
-/// Which windows are eligible to appear in the switcher.
-enum WindowScope: String, CaseIterable, Codable {
-    case allScreens        // every window on every display
-    case activeScreen      // only windows on the screen with the cursor / focus
-    case activeSpace       // only windows on the current Mission Control space
+enum WindowScope: String, CaseIterable, Codable, Identifiable {
+    case allScreens
+    case activeScreen
+    case activeSpace
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .allScreens:   return "All screens"
+        case .activeScreen: return "Active screen only"
+        case .activeSpace:  return "Current space only"
+        }
+    }
 }
 
-struct Preferences: Codable {
+struct Preferences: Codable, Equatable {
     var layout: SwitcherLayout = .appGrid
     var scope: WindowScope = .allScreens
     var showMinimizedWindows: Bool = true
     var showHiddenApps: Bool = false
 
-    // Keybindings are stored as (keyCode, carbonModifierMask) pairs so they can
-    // be rebound from a future preferences UI without touching the hot-key code.
-    var nextKeyCode: UInt32 = 48        // kVK_Tab
-    var nextModifiers: UInt32 = 0x0800  // optionKey
+    var triggerKeyCode: UInt32 = UInt32(kVK_Tab)
+    var triggerModifiers: UInt32 = UInt32(optionKey)
     var reverseAddsShift: Bool = true
+}
 
-    static let storageKey = "ch.socraft.opentab.preferences"
+final class PreferencesStore: ObservableObject {
+    static let shared = PreferencesStore()
+    static let didChange = Notification.Name("ch.socraft.opentab.preferencesDidChange")
 
-    static func load() -> Preferences {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode(Preferences.self, from: data) else {
-            return Preferences()
+    @Published var preferences: Preferences {
+        didSet {
+            guard preferences != oldValue else { return }
+            persist()
+            NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
-        return decoded
     }
 
-    func save() {
-        guard let data = try? JSONEncoder().encode(self) else { return }
+    private static let storageKey = "ch.socraft.opentab.preferences"
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode(Preferences.self, from: data) {
+            preferences = decoded
+        } else {
+            preferences = Preferences()
+        }
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(preferences) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
     }
 }
