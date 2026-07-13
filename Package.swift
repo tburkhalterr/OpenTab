@@ -18,6 +18,11 @@ let package = Package(
                 // Private SkyLight framework: cross-Space switching (see CrossSpaceFocus).
                 .unsafeFlags(["-F", "/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
+        ),
+        .testTarget(
+            name: "OpenTabTests",
+            dependencies: ["OpenTab"],
+            path: "Tests/OpenTabTests"
         )
     ]
 )

@@ -8,8 +8,10 @@ final class SwitcherController {
     private var isActive = false
     private var triggerFlags: NSEvent.ModifierFlags = []
     private var releaseTimer: Timer?
+    private var escapeMonitor: Any?
 
     private static let releasePollInterval: TimeInterval = 0.045
+    private static let escapeKeyCode: UInt16 = 53
 
     func advance(reverse: Bool) {
         if !isActive { beginSession() }
@@ -22,12 +24,21 @@ final class SwitcherController {
 
     func commit() {
         guard isActive else { return }
-        isActive = false
-        stopReleaseWatch()
-
+        endSession()
         if windows.indices.contains(selectedIndex) {
             WindowManager.focus(windows[selectedIndex])
         }
+    }
+
+    func cancel() {
+        guard isActive else { return }
+        endSession()
+    }
+
+    private func endSession() {
+        isActive = false
+        stopReleaseWatch()
+        stopEscapeWatch()
         panel?.orderOut(nil)
     }
 
@@ -43,6 +54,7 @@ final class SwitcherController {
         panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
         panel.highlight(index: selectedIndex)
         startReleaseWatch()
+        startEscapeWatch()
     }
 
     private func collapseByApp(_ windows: [WindowInfo]) -> [WindowInfo] {
@@ -79,5 +91,17 @@ final class SwitcherController {
     private func stopReleaseWatch() {
         releaseTimer?.invalidate()
         releaseTimer = nil
+    }
+
+    private func startEscapeWatch() {
+        stopEscapeWatch()
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == SwitcherController.escapeKeyCode { self?.cancel() }
+        }
+    }
+
+    private func stopEscapeWatch() {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
     }
 }

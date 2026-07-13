@@ -10,6 +10,8 @@ private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMut
 final class MRUTracker {
     static let shared = MRUTracker()
 
+    private static let maxTracked = 200
+
     private var order: [CGWindowID] = []
     private var axObserver: AXObserver?
     private var observedApp: AXUIElement?
@@ -28,6 +30,9 @@ final class MRUTracker {
     func promote(_ id: CGWindowID) {
         order.removeAll { $0 == id }
         order.insert(id, at: 0)
+        if order.count > Self.maxTracked {
+            order.removeLast(order.count - Self.maxTracked)
+        }
     }
 
     /// Known windows first in MRU order, then any unseen window keeping the
