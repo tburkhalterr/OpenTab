@@ -13,8 +13,7 @@ struct SettingsView: View {
             shortcutTab
                 .tabItem { Label("Shortcut", systemImage: "keyboard") }
         }
-        .frame(width: 460)
-        .padding()
+        .frame(width: 460, height: 320)
     }
 
     private var appearanceTab: some View {

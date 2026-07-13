@@ -6,17 +6,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKeyManager = HotKeyManager()
     private let switcher = SwitcherController()
     private let settingsWindow = SettingsWindowController()
-    private var flagsMonitor: Any?
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard ensureAccessibilityPermission() else {
-            NSApp.terminate(nil)
-            return
-        }
+        requestAccessibilityPermission()
+        MRUTracker.shared.start()
         setupStatusItem()
         reloadHotKeys()
-        setupModifierReleaseMonitor()
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(reloadHotKeys),
@@ -24,19 +20,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
         hotKeyManager.unregisterAll()
         NotificationCenter.default.removeObserver(self)
     }
 
-    private func ensureAccessibilityPermission() -> Bool {
+    @discardableResult
+    private func requestAccessibilityPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         return AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "⇥"
+        if let button = item.button {
+            let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+            button.image = NSImage(systemSymbolName: "rectangle.stack",
+                                   accessibilityDescription: "OpenTab")?
+                .withSymbolConfiguration(config)
+            button.image?.isTemplate = true
+        }
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
@@ -66,22 +68,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupModifierReleaseMonitor() {
-        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            guard let self else { return }
-            let triggerFlags = Self.appKitFlags(from: PreferencesStore.shared.preferences.triggerModifiers)
-            if event.modifierFlags.intersection(triggerFlags) != triggerFlags {
-                self.switcher.commit()
-            }
-        }
-    }
-
-    private static func appKitFlags(from carbonMask: UInt32) -> NSEvent.ModifierFlags {
-        var flags: NSEvent.ModifierFlags = []
-        if carbonMask & UInt32(controlKey) != 0 { flags.insert(.control) }
-        if carbonMask & UInt32(optionKey)  != 0 { flags.insert(.option) }
-        if carbonMask & UInt32(shiftKey)   != 0 { flags.insert(.shift) }
-        if carbonMask & UInt32(cmdKey)     != 0 { flags.insert(.command) }
-        return flags
-    }
 }

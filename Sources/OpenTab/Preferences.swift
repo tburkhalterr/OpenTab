@@ -12,7 +12,7 @@ enum SwitcherLayout: String, CaseIterable, Codable, Identifiable {
 
     var label: String {
         switch self {
-        case .appGrid: return "App grid (thumbnails)"
+        case .appGrid: return "App grid"
         case .list:    return "List"
         case .appOnly: return "One entry per app"
         }
@@ -22,7 +22,6 @@ enum SwitcherLayout: String, CaseIterable, Codable, Identifiable {
 enum WindowScope: String, CaseIterable, Codable, Identifiable {
     case allScreens
     case activeScreen
-    case activeSpace
 
     var id: String { rawValue }
 
@@ -30,7 +29,6 @@ enum WindowScope: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .allScreens:   return "All screens"
         case .activeScreen: return "Active screen only"
-        case .activeSpace:  return "Current space only"
         }
     }
 }
@@ -48,7 +46,7 @@ struct Preferences: Codable, Equatable {
 
 final class PreferencesStore: ObservableObject {
     static let shared = PreferencesStore()
-    static let didChange = Notification.Name("ch.socraft.opentab.preferencesDidChange")
+    static let didChange = Notification.Name("com.tburkhalterr.opentab.preferencesDidChange")
 
     @Published var preferences: Preferences {
         didSet {
@@ -58,7 +56,7 @@ final class PreferencesStore: ObservableObject {
         }
     }
 
-    private static let storageKey = "ch.socraft.opentab.preferences"
+    private static let storageKey = "com.tburkhalterr.opentab.preferences"
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),

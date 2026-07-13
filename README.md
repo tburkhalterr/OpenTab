@@ -31,8 +31,8 @@ Roadmap:
 Requires macOS 13+ and the Swift toolchain (Xcode or Command Line Tools).
 
 ```bash
-git clone https://github.com/socraft/opentab.git
-cd opentab
+git clone https://github.com/tburkhalterr/OpenTab.git
+cd OpenTab
 make run          # builds OpenTab.app and launches it
 ```
 
@@ -42,12 +42,24 @@ Other targets: `make build` (SPM only), `make app` (assemble the bundle),
 On first launch macOS will ask for **Accessibility** permission
 (System Settings → Privacy & Security → Accessibility). Grant it, then relaunch.
 
+### Keep the permission across rebuilds (dev)
+
+Unsigned apps get a new code identity on every build, so macOS re-asks for
+Accessibility each time. Sign with a stable self-signed certificate once:
+
+```bash
+make cert   # creates a "OpenTab Dev" code-signing certificate (one time)
+make run    # now signed with a stable identity — grant Accessibility once
+```
+
+After this, rebuilds reuse the same identity and the grant sticks.
+
 ## Install with Homebrew
 
 Once a signed release is published:
 
 ```bash
-brew install --cask socraft/tap/opentab
+brew install --cask tburkhalterr/tap/opentab
 ```
 
 The cask lives in `Casks/opentab.rb`. To ship it: zip `OpenTab.app`, attach it

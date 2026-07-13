@@ -5,10 +5,10 @@ cask "opentab" do
   version "0.1.0"
   sha256 :no_check # replace with the real checksum once a release is published
 
-  url "https://github.com/socraft/opentab/releases/download/v#{version}/OpenTab.zip"
+  url "https://github.com/tburkhalterr/OpenTab/releases/download/v#{version}/OpenTab.zip"
   name "OpenTab"
   desc "Free, open-source AltTab-style window switcher for macOS"
-  homepage "https://github.com/socraft/opentab"
+  homepage "https://github.com/tburkhalterr/OpenTab"
 
   depends_on macos: ">= :ventura"
 

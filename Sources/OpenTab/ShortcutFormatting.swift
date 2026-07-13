@@ -36,6 +36,15 @@ enum ShortcutFormatting {
         return mask
     }
 
+    static func appKitModifiers(from carbonMask: UInt32) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if carbonMask & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if carbonMask & UInt32(optionKey)  != 0 { flags.insert(.option) }
+        if carbonMask & UInt32(shiftKey)   != 0 { flags.insert(.shift) }
+        if carbonMask & UInt32(cmdKey)     != 0 { flags.insert(.command) }
+        return flags
+    }
+
     private static let specialKeyNames: [Int: String] = [
         kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4",
         kVK_F5: "F5", kVK_F6: "F6", kVK_F7: "F7", kVK_F8: "F8",
