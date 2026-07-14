@@ -139,21 +139,51 @@ enum WindowManager {
         let app = NSRunningApplication(processIdentifier: window.pid)
         if window.isHidden { app?.unhide() }
 
-        // Activate through LaunchServices (like the Dock / Cmd+Tab): this
-        // switches to the app's Space, full-screen included, where the private
-        // SkyLight calls do not on recent macOS. Then raise the exact window
-        // once the switch has made it reachable via AX.
-        // Current-Space windows raise precisely via AX. Off-Space windows just
-        // activate the app through LaunchServices — raising them mid Space-switch
-        // makes the switch flaky, so we let macOS land on the app's window there.
         if let axWindow = window.axElement {
-            raise(axWindow)
             NSRunningApplication(processIdentifier: window.pid)?.activate()
-        } else if let url = app?.bundleURL {
-            let config = NSWorkspace.OpenConfiguration()
-            config.activates = true
-            NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
+            raise(axWindow)
+            return
         }
+
+        // Off-Space: activate through LaunchServices (like the Dock / Cmd+Tab),
+        // which switches to the app's Space — full-screen included. Raise the
+        // exact window only in the completion handler, i.e. AFTER the switch has
+        // been driven; raising during the transition makes it flaky.
+        guard let url = app?.bundleURL else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        let pid = window.pid
+        let id = window.id
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                // Setting the app frontmost via AX after activation commits the
+                // Space transition for full-screen apps, which LaunchServices
+                // activation alone leaves in the menu bar without switching.
+                AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid),
+                                             kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+                raiseWhenReachable(pid: pid, id: id)
+            }
+        }
+    }
+
+    private static let maxRaiseRetries = 8
+    private static let raiseRetryDelay: TimeInterval = 0.05
+
+    private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
+        if let axWindow = axWindow(pid: pid, id: id) {
+            raise(axWindow)
+            return
+        }
+        guard attempt < maxRaiseRetries else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + raiseRetryDelay) {
+            raiseWhenReachable(pid: pid, id: id, attempt: attempt + 1)
+        }
+    }
+
+    private static func axWindow(pid: pid_t, id: CGWindowID) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, axTimeout)
+        return copyWindows(of: app)?.first { windowID(of: $0) == id }
     }
 
     private static func raise(_ axWindow: AXUIElement) {
