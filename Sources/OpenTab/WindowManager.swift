@@ -137,7 +137,7 @@ enum WindowManager {
     //  - same frame  → members of a native tab group (stacked, so identical
     //    frames) that AX can't disambiguate off-Space.
     // Minimized windows are exempt (degenerate/identical frames and titles).
-    private static func collapseDuplicates(_ windows: [WindowInfo]) -> [WindowInfo] {
+    static func collapseDuplicates(_ windows: [WindowInfo]) -> [WindowInfo] {
         var seenTitle = Set<String>()
         var seenFrame = Set<String>()
         return windows.filter { window in

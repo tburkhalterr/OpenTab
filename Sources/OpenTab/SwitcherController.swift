@@ -47,7 +47,7 @@ final class SwitcherController {
     private func beginSession(reverse: Bool) {
         let prefs = PreferencesStore.shared.preferences
         let listed = WindowManager.listWindows(preferences: prefs)
-        windows = prefs.layout == .appOnly ? collapseByApp(listed) : listed
+        windows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
         selectedIndex = initialIndex(reverse: reverse)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
         triggerKeyCode = CGKeyCode(prefs.triggerKeyCode)
@@ -82,7 +82,7 @@ final class SwitcherController {
         panel?.orderOut(nil)
     }
 
-    private func collapseByApp(_ windows: [WindowInfo]) -> [WindowInfo] {
+    static func collapseByApp(_ windows: [WindowInfo]) -> [WindowInfo] {
         let counts = Dictionary(grouping: windows, by: \.pid).mapValues(\.count)
         var seen = Set<pid_t>()
         return windows.compactMap { window in

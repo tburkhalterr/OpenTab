@@ -4,27 +4,29 @@ A free, open-source, MIT-licensed **AltTab-style window switcher for macOS**.
 Hold <kbd>⌥ Option</kbd> and press <kbd>⇥ Tab</kbd> to cycle through your open
 windows; release Option to focus the highlighted one.
 
-> Status: **v0.1** — core switching, a settings window, view modes and a
-> rebindable shortcut work. Live thumbnails and the remaining scopes are on the
-> roadmap below.
+> Status: cross-Space switching, window titles, hold-to-repeat and a settings
+> window all work. Live thumbnails and in-switcher search are on the roadmap.
 
 ## Features
 
 Working now:
-- Global window cycling — default <kbd>⌥</kbd>+<kbd>⇥</kbd> forward, <kbd>⌥⇧</kbd>+<kbd>⇥</kbd> backward
-- Raises the exact window (not just the app) via the Accessibility API
-- HUD panel with app icon + window title per entry
-- **Settings window** (menu bar → Settings…, or <kbd>⌘</kbd>+<kbd>,</kbd>):
-  - **View mode** — app grid, list, or one entry per app
-  - **Scope** — all screens or active screen
-  - **Rebindable shortcut** — record any modifier + key combo
+- Window cycling across **all Spaces** — <kbd>⌥</kbd>+<kbd>⇥</kbd> forward, <kbd>⌥⇧</kbd>+<kbd>⇥</kbd> backward
+- **Hold** the key to auto-repeat; <kbd>Esc</kbd> cancels without switching
+- Real window titles (via Accessibility + Screen Recording for other Spaces)
+- Focuses the exact window and switches to its Space, **full-screen included**
+- Duplicate/tab folding so each real window appears once
+- **Real MRU ordering** (windows ordered by actual recent use)
+- **Settings** (menu bar → Settings…, or <kbd>⌘</kbd>+<kbd>,</kbd>):
+  - **View** — app grid, list, or one entry per app · **Density** — normal / compact
+  - **Scope** — all screens or active screen · minimized / hidden-app toggles
+  - **Rebindable shortcut** · live permission & status readout
 - Menu-bar item, no Dock icon
 
 Roadmap:
-- Live window thumbnails
-- `activeSpace` scope + `appOnly` collapsing
-- Minimized / hidden-window inclusion
-- Fuzzy search while the switcher is open
+- Live window thumbnails in the grid
+- Type-to-filter (fuzzy search) while the switcher is open
+- Mouse (hover/click) and arrow-key navigation
+- Act on the highlighted window (close / quit / minimize)
 
 ## Build from source
 
@@ -71,12 +73,18 @@ a `homebrew-tap` repository.
 | File | Responsibility |
 |------|----------------|
 | `main.swift` | App entry point, accessory (agent) activation policy |
-| `AppDelegate.swift` | Permission check, hot-key + modifier-release wiring, menu bar |
+| `AppDelegate.swift` | Permission gate + auto-recovery, hot-key wiring, menu bar |
 | `HotKeyManager.swift` | Global hot keys via Carbon `RegisterEventHotKey` |
-| `WindowManager.swift` | Enumerate windows (`CGWindowList`) and raise them (Accessibility) |
-| `SwitcherController.swift` | Session state: build list, track selection, commit |
+| `SwitcherController.swift` | Session state: build list, key-state polling, commit/cancel |
 | `SwitcherPanel.swift` | The borderless HUD panel and its cells |
-| `Preferences.swift` | Persisted settings: layout, scope, keybindings |
+| `WindowManager.swift` | Enumerate windows (`CGWindowList` + AX) and focus them |
+| `MRUTracker.swift` | Most-recently-used ordering via focus observers |
+| `AX.swift` | Shared Accessibility helpers + the private window-id symbol |
+| `ActiveScreen.swift` | Screen under the pointer (panel position + scope) |
+| `Preferences.swift` | `Preferences` model + observable persisted store |
+| `SettingsView.swift` / `SettingsWindowController.swift` | SwiftUI settings + its window |
+| `ShortcutRecorder.swift` / `ShortcutFormatting.swift` | Shortcut capture + glyph formatting |
+| `AppStatus.swift` | Observable health flags shown in Settings |
 
 ## License
 
