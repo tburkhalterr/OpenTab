@@ -13,7 +13,7 @@ final class ShortcutRecorder: ObservableObject {
     }
 
     func toggle() {
-        isRecording ? stop() : start()
+        if isRecording { stop() } else { start() }
     }
 
     func start() {

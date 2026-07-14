@@ -17,12 +17,19 @@ ifeq ($(SIGN_ID),)
 SIGN_ID := -
 endif
 
-.PHONY: all build app sign run clean cert
+.PHONY: all build test lint app sign run clean cert
 
 all: app
 
 build:
 	swift build -c $(CONFIG)
+
+test:
+	swift test
+
+# Style / correctness lint (brew install swiftlint). Enforced in CI.
+lint:
+	swiftlint lint --strict
 
 app: build
 	rm -rf "$(APP_BUNDLE)"

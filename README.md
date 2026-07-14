@@ -43,7 +43,8 @@ make run          # builds OpenTab.app and launches it
 ```
 
 Other targets: `make build` (SPM only), `make app` (assemble the bundle),
-`make clean`.
+`make test`, `make lint` (SwiftLint — `brew install swiftlint`), `make clean`.
+CI (`.github/workflows/swift.yml`) runs lint + build + tests on every push/PR.
 
 On first launch macOS will ask for **Accessibility** permission
 (System Settings → Privacy & Security → Accessibility). Grant it, then relaunch.

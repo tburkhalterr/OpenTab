@@ -1,0 +1,31 @@
+# .swiftlint.yml
+included:
+  - Sources
+  - Tests
+
+disabled_rules:
+  - force_cast                            # guarded CFBoolean casts in AX helpers
+  - todo
+  - opening_brace                         # intentional column alignment of guards
+  - large_tuple                           # 3-field config tuples read clearly here
+  - notification_center_detachment        # AppDelegate detaches in willTerminate
+  - multiple_closures_with_trailing_closure # SwiftUI Button(action:){ }-style
+
+line_length:
+  warning: 140
+  error: 200
+
+identifier_name:
+  min_length: 1         # i, x, q, id are intentional
+  max_length: 60
+
+type_name:
+  min_length: 2
+
+function_body_length:
+  warning: 70
+  error: 120
+
+type_body_length:
+  warning: 320
+  error: 450
