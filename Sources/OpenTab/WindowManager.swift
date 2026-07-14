@@ -139,38 +139,21 @@ enum WindowManager {
         let app = NSRunningApplication(processIdentifier: window.pid)
         if window.isHidden { app?.unhide() }
 
-        // Activate the app the way Cmd+Tab does (targets no specific window), so
-        // macOS actually switches to its Space instead of summoning the window.
-        CrossSpaceFocus.activateApp(pid: window.pid)
-
+        // Activate through LaunchServices (like the Dock / Cmd+Tab): this
+        // switches to the app's Space, full-screen included, where the private
+        // SkyLight calls do not on recent macOS. Then raise the exact window
+        // once the switch has made it reachable via AX.
+        // Current-Space windows raise precisely via AX. Off-Space windows just
+        // activate the app through LaunchServices — raising them mid Space-switch
+        // makes the switch flaky, so we let macOS land on the app's window there.
         if let axWindow = window.axElement {
             raise(axWindow)
-        } else {
-            // Off-Space: once the Space switch has made the window reachable via
-            // AX, raise the exact one. It is on the now-current Space, so this
-            // focuses it rather than summoning it back.
-            raiseWhenReachable(pid: window.pid, id: window.id)
+            NSRunningApplication(processIdentifier: window.pid)?.activate()
+        } else if let url = app?.bundleURL {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
         }
-    }
-
-    private static let maxRaiseRetries = 10
-    private static let raiseRetryDelay: TimeInterval = 0.05
-
-    private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
-        if let axWindow = axWindow(pid: pid, id: id) {
-            raise(axWindow)
-            return
-        }
-        guard attempt < maxRaiseRetries else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + raiseRetryDelay) {
-            raiseWhenReachable(pid: pid, id: id, attempt: attempt + 1)
-        }
-    }
-
-    private static func axWindow(pid: pid_t, id: CGWindowID) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, axTimeout)
-        return copyWindows(of: app)?.first { windowID(of: $0) == id }
     }
 
     private static func raise(_ axWindow: AXUIElement) {
