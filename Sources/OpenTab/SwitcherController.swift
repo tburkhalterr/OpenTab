@@ -17,6 +17,7 @@ final class SwitcherController {
     private var lastAdvance: TimeInterval = 0
     private var hoverEnabled = false
     private var allWindows: [WindowInfo] = []
+    private var cachedWindows: [WindowInfo] = []
     private var query = ""
     private var layout: SwitcherLayout = .appGrid
     private var density: SwitcherDensity = .normal
@@ -70,8 +71,11 @@ final class SwitcherController {
         density = prefs.density
         thumbnails = prefs.showThumbnails
         query = ""
-        let listed = WindowManager.listWindows(preferences: prefs)
-        allWindows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        // Show the HUD instantly from the previous list, then refresh; the first
+        // press ever (empty cache) builds synchronously.
+        let usingCache = !cachedWindows.isEmpty
+        allWindows = usingCache ? cachedWindows : buildWindows(prefs)
+        cachedWindows = allWindows
         windows = allWindows
         selectedIndex = initialIndex(reverse: reverse)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
@@ -85,13 +89,43 @@ final class SwitcherController {
         hoverEnabled = false
 
         let panel = panel ?? makePanel()
-        panel.present(windows: windows, layout: prefs.layout, density: prefs.density, thumbnails: prefs.showThumbnails)
+        panel.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
         panel.highlight(index: selectedIndex)
         startPoll()
         startEventTap()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverGrace) { [weak self] in
             self?.hoverEnabled = true
         }
+        if usingCache {
+            DispatchQueue.main.async { [weak self] in self?.refreshFromSource(reverse: reverse) }
+        }
+    }
+
+    private func buildWindows(_ prefs: Preferences) -> [WindowInfo] {
+        let listed = WindowManager.listWindows(preferences: prefs)
+        return prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+    }
+
+    // Rebuild the list from the window server and reconcile the shown selection;
+    // skips re-presenting when nothing changed to avoid flicker.
+    private func refreshFromSource(reverse: Bool) {
+        guard isActive else { return }
+        let fresh = buildWindows(PreferencesStore.shared.preferences)
+        cachedWindows = fresh
+        guard fresh.map(\.id) != allWindows.map(\.id) else { return }
+
+        let selectedID = windows.indices.contains(selectedIndex) ? windows[selectedIndex].id : nil
+        allWindows = fresh
+        windows = WindowManager.filter(allWindows, query: query)
+        guard !windows.isEmpty else { cancel(); return }
+        if let selectedID, let index = windows.firstIndex(where: { $0.id == selectedID }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = initialIndex(reverse: reverse)
+        }
+        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
+        panel?.setQuery(query)
+        panel?.highlight(index: selectedIndex)
     }
 
     private func initialIndex(reverse: Bool) -> Int {
@@ -186,8 +220,8 @@ final class SwitcherController {
     private func refreshWindows() {
         guard isActive else { return }
         let prefs = PreferencesStore.shared.preferences
-        let listed = WindowManager.listWindows(preferences: prefs)
-        allWindows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        allWindows = buildWindows(prefs)
+        cachedWindows = allWindows
         windows = WindowManager.filter(allWindows, query: query)
         guard !windows.isEmpty else { cancel(); return }
         selectedIndex = min(selectedIndex, windows.count - 1)
