@@ -9,8 +9,11 @@ final class SwitcherPanel: NSPanel {
     private let cellStack = NSStackView()
     private let queryLabel = NSTextField(labelWithString: "")
     private var cells: [SwitcherCell] = []
+    private var cellByID: [CGWindowID: SwitcherCell] = [:]
     private var windows: [WindowInfo] = []
     private var query = ""
+
+    private static let thumbnailMaxSize: CGFloat = 320
 
     private static let outerInset: CGFloat = 16
     private static let queryHeight: CGFloat = 26
@@ -32,25 +35,39 @@ final class SwitcherPanel: NSPanel {
         contentView = makeContainer()
     }
 
-    func present(windows: [WindowInfo], layout: SwitcherLayout, density: SwitcherDensity) {
+    func present(windows: [WindowInfo], layout: SwitcherLayout, density: SwitcherDensity, thumbnails: Bool) {
         self.windows = windows
-        let metrics = CellMetrics(layout: layout, density: density)
+        let metrics = CellMetrics(layout: layout, density: density, thumbnails: thumbnails)
 
         cellStack.orientation = (layout == .list) ? .vertical : .horizontal
         cellStack.spacing = metrics.stackSpacing
         cellStack.edgeInsets = NSEdgeInsets(top: metrics.stackInset, left: metrics.stackInset,
                                             bottom: metrics.stackInset, right: metrics.stackInset)
         cells.forEach { $0.removeFromSuperview() }
+        cellByID.removeAll()
         cells = windows.enumerated().map { index, window in
             let cell = SwitcherCell(window: window, metrics: metrics)
             cell.onHover = { [weak self] in self?.onHover?(index) }
             cell.onSelect = { [weak self] in self?.onSelect?(index) }
+            cellByID[window.id] = cell
             return cell
         }
         cells.forEach { cellStack.addArrangedSubview($0) }
 
         resizeToContent()
         orderFrontRegardless()
+        if metrics.thumbnails { loadThumbnails(for: windows) }
+    }
+
+    // Only current-Space windows (those with an AX element) are capturable.
+    private func loadThumbnails(for windows: [WindowInfo]) {
+        let ids = windows.filter { $0.axElement != nil }.map(\.id)
+        for id in ids {
+            if let cached = ThumbnailProvider.cached(id) { cellByID[id]?.setThumbnail(cached) }
+        }
+        ThumbnailProvider.capture(ids, maxSize: Self.thumbnailMaxSize) { [weak self] id, image in
+            self?.cellByID[id]?.setThumbnail(image)
+        }
     }
 
     func highlight(index: Int) {
@@ -119,7 +136,9 @@ final class SwitcherPanel: NSPanel {
 
 private struct CellMetrics {
     let isList: Bool
+    let thumbnails: Bool
     let iconSize: CGFloat
+    let mediaSize: CGSize
     let cellWidth: CGFloat
     let titleSize: CGFloat
     let titleLines: Int
@@ -129,9 +148,11 @@ private struct CellMetrics {
     let stackSpacing: CGFloat
     let stackInset: CGFloat
 
-    init(layout: SwitcherLayout, density: SwitcherDensity) {
+    init(layout: SwitcherLayout, density: SwitcherDensity, thumbnails: Bool) {
         isList = layout == .list
         let compact = density == .compact
+        // Thumbnails only make sense in the roomy grid layout.
+        self.thumbnails = thumbnails && !isList && !compact
         showSecondary = !compact
         titleLines = (isList || compact) ? 1 : 2
         stackSpacing = compact ? 6 : 10
@@ -139,11 +160,20 @@ private struct CellMetrics {
         contentPadding = compact ? 6 : 10
         titleSize = compact ? 11 : 12
 
+        let baseWidth: CGFloat
         switch (isList, compact) {
-        case (true, false):  iconSize = 32; cellWidth = 340; contentSpacing = 12
-        case (true, true):   iconSize = 20; cellWidth = 260; contentSpacing = 9
-        case (false, false): iconSize = 60; cellWidth = 150; contentSpacing = 8
-        case (false, true):  iconSize = 34; cellWidth = 104; contentSpacing = 6
+        case (true, false):  iconSize = 32; baseWidth = 340; contentSpacing = 12
+        case (true, true):   iconSize = 20; baseWidth = 260; contentSpacing = 9
+        case (false, false): iconSize = 60; baseWidth = 150; contentSpacing = 8
+        case (false, true):  iconSize = 34; baseWidth = 104; contentSpacing = 6
+        }
+
+        if self.thumbnails {
+            mediaSize = CGSize(width: 168, height: 104)
+            cellWidth = 188
+        } else {
+            mediaSize = CGSize(width: iconSize, height: iconSize)
+            cellWidth = baseWidth
         }
     }
 }
@@ -155,6 +185,7 @@ private final class SwitcherCell: NSView {
     private let highlight = NSView()
     private let titleLabel: NSTextField
     private let metrics: CellMetrics
+    private var applyThumbnail: ((NSImage) -> Void)?
 
     init(window: WindowInfo, metrics: CellMetrics) {
         self.metrics = metrics
@@ -170,10 +201,10 @@ private final class SwitcherCell: NSView {
         highlight.translatesAutoresizingMaskIntoConstraints = false
         addSubview(highlight)
 
-        let iconView = makeIconView(window.icon)
+        let media = makeMedia(window: window)
         let textStack = makeTextStack(window: window)
 
-        let content = NSStackView(views: [iconView, textStack])
+        let content = NSStackView(views: [media, textStack])
         content.orientation = metrics.isList ? .horizontal : .vertical
         content.alignment = metrics.isList ? .centerY : .centerX
         content.spacing = metrics.contentSpacing
@@ -182,8 +213,8 @@ private final class SwitcherCell: NSView {
 
         let pad = metrics.contentPadding
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
+            media.widthAnchor.constraint(equalToConstant: metrics.mediaSize.width),
+            media.heightAnchor.constraint(equalToConstant: metrics.mediaSize.height),
             content.topAnchor.constraint(equalTo: topAnchor, constant: pad),
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: pad + 2),
@@ -194,6 +225,47 @@ private final class SwitcherCell: NSView {
             highlight.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
         widthAnchor.constraint(equalToConstant: metrics.cellWidth).isActive = true
+    }
+
+    func setThumbnail(_ image: NSImage) { applyThumbnail?(image) }
+
+    private func makeMedia(window: WindowInfo) -> NSView {
+        guard metrics.thumbnails else { return makeIconView(window.icon) }
+
+        let box = NSView()
+        box.wantsLayer = true
+        box.layer?.cornerRadius = 8
+        box.layer?.masksToBounds = true
+        box.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.5).cgColor
+        box.translatesAutoresizingMaskIntoConstraints = false
+
+        let icon = makeIconView(window.icon)          // fallback until the shot loads
+        let thumb = makeIconView(nil); thumb.isHidden = true
+        let badge = makeIconView(window.icon); badge.isHidden = true
+        box.addSubview(thumb); box.addSubview(icon); box.addSubview(badge)
+
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 40),
+            icon.heightAnchor.constraint(equalToConstant: 40),
+            thumb.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            thumb.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            thumb.topAnchor.constraint(equalTo: box.topAnchor),
+            thumb.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            badge.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -4),
+            badge.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -4),
+            badge.widthAnchor.constraint(equalToConstant: 22),
+            badge.heightAnchor.constraint(equalToConstant: 22)
+        ])
+
+        applyThumbnail = { image in
+            thumb.image = image
+            thumb.isHidden = false
+            icon.isHidden = true
+            badge.isHidden = false
+        }
+        return box
     }
 
     private func makeIconView(_ icon: NSImage?) -> NSImageView {

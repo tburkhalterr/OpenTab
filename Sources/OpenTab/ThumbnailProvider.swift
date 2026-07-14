@@ -1,0 +1,50 @@
+// Sources/OpenTab/ThumbnailProvider.swift
+import Cocoa
+import ScreenCaptureKit
+
+/// Captures per-window thumbnails via ScreenCaptureKit and caches them by
+/// CGWindowID. Only current-Space windows are shareable, so off-Space windows
+/// simply never get a thumbnail and fall back to their app icon.
+enum ThumbnailProvider {
+    private static var cache: [CGWindowID: NSImage] = [:]
+
+    static func cached(_ id: CGWindowID) -> NSImage? { cache[id] }
+
+    /// Captures any of `ids` not already cached, invoking `each` on the main
+    /// thread as each image becomes available. One SCShareableContent lookup is
+    /// shared across the batch, and captures run sequentially to bound cost.
+    static func capture(_ ids: [CGWindowID], maxSize: CGFloat, each: @escaping (CGWindowID, NSImage) -> Void) {
+        guard #available(macOS 14.0, *) else { return }
+        let missing = ids.filter { cache[$0] == nil }
+        guard !missing.isEmpty else { return }
+
+        Task {
+            guard let content = try? await SCShareableContent.excludingDesktopWindows(
+                false, onScreenWindowsOnly: true) else { return }
+            for id in missing {
+                guard let window = content.windows.first(where: { $0.windowID == id }),
+                      let image = await captureWindow(window, maxSize: maxSize) else { continue }
+                await MainActor.run {
+                    cache[id] = image
+                    each(id, image)
+                }
+            }
+        }
+    }
+
+    @available(macOS 14.0, *)
+    private static func captureWindow(_ window: SCWindow, maxSize: CGFloat) async -> NSImage? {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let config = SCStreamConfiguration()
+        let longest = max(window.frame.width, window.frame.height)
+        let scale = longest > maxSize ? maxSize / longest : 1
+        config.width = max(1, Int(window.frame.width * scale))
+        config.height = max(1, Int(window.frame.height * scale))
+        config.showsCursor = false
+        guard let cgImage = try? await SCScreenshotManager.captureImage(
+            contentFilter: filter, configuration: config) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}

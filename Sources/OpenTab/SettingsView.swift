@@ -102,6 +102,7 @@ struct SettingsView: View {
                 ForEach(SwitcherDensity.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
+            Toggle("Live thumbnails (grid)", isOn: prefs.showThumbnails)
             Picker("Include windows from", selection: prefs.scope) {
                 ForEach(WindowScope.allCases) { Text($0.label).tag($0) }
             }

@@ -50,6 +50,7 @@ enum WindowScope: String, CaseIterable, Codable, Identifiable {
 struct Preferences: Codable, Equatable {
     var layout: SwitcherLayout = .appGrid
     var density: SwitcherDensity = .normal
+    var showThumbnails: Bool = true
     var scope: WindowScope = .allScreens
     var showMinimizedWindows: Bool = true
     var showHiddenApps: Bool = false

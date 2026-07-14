@@ -20,6 +20,7 @@ final class SwitcherController {
     private var query = ""
     private var layout: SwitcherLayout = .appGrid
     private var density: SwitcherDensity = .normal
+    private var thumbnails = true
 
     private static let pollInterval: TimeInterval = 0.03
     private static let repeatDelay: TimeInterval = 0.13
@@ -67,6 +68,7 @@ final class SwitcherController {
         let prefs = PreferencesStore.shared.preferences
         layout = prefs.layout
         density = prefs.density
+        thumbnails = prefs.showThumbnails
         query = ""
         let listed = WindowManager.listWindows(preferences: prefs)
         allWindows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
@@ -83,7 +85,7 @@ final class SwitcherController {
         hoverEnabled = false
 
         let panel = panel ?? makePanel()
-        panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
+        panel.present(windows: windows, layout: prefs.layout, density: prefs.density, thumbnails: prefs.showThumbnails)
         panel.highlight(index: selectedIndex)
         startPoll()
         startEventTap()
@@ -189,7 +191,7 @@ final class SwitcherController {
         windows = WindowManager.filter(allWindows, query: query)
         guard !windows.isEmpty else { cancel(); return }
         selectedIndex = min(selectedIndex, windows.count - 1)
-        panel?.present(windows: windows, layout: layout, density: density)
+        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
         panel?.setQuery(query)
         panel?.highlight(index: selectedIndex)
     }
@@ -269,7 +271,7 @@ final class SwitcherController {
         query = newQuery
         windows = WindowManager.filter(allWindows, query: query)
         selectedIndex = 0
-        panel?.present(windows: windows, layout: layout, density: density)
+        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
         panel?.setQuery(query)
         panel?.highlight(index: selectedIndex)
     }
