@@ -37,75 +37,97 @@ enum WindowManager {
     /// AX then enriches current-Space windows with real titles and per-window
     /// elements; off-Space windows fall back to their CG name / app name.
     static func listWindows(preferences: Preferences) -> [WindowInfo] {
-        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-        let regularPIDs = Set(apps.map(\.processIdentifier))
-        let hiddenPIDs = Set(apps.filter(\.isHidden).map(\.processIdentifier))
-        let appByPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
-
-        let (geometry, currentSpacePIDs) = currentSpaceInfo()
-        let currentSpaceIDs = Set(geometry.keys)
-        let ax = axIndex(pids: currentSpacePIDs, appByPID: appByPID)
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-
+        let context = Context.build()
         guard let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
 
         var seen = Set<CGWindowID>()
         var windows: [WindowInfo] = []
-
         for entry in raw {
-            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
-                  let id = entry[kCGWindowNumber as String] as? CGWindowID, seen.insert(id).inserted,
-                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                  pid != ownPID, regularPIDs.contains(pid),
-                  let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
-                continue
-            }
-
-            let axEntry = ax[id]
-            let app = appByPID[pid]
-            let onScreen = currentSpaceIDs.contains(id)
-            let minimized = axEntry?.minimized ?? false
-            let hidden = axEntry?.appHidden ?? hiddenPIDs.contains(pid)
-
-            if axEntry == nil {
-                // AX fully covers the current Space, so a current-Space window it
-                // omits is chrome; off-Space windows just aren't in AX at all.
-                if !ax.isEmpty && onScreen { continue }
-                if bounds.height < minChromeStripHeight { continue }
-            } else if !onScreen && !minimized && !hidden {
-                // A current-Space standard window that is not on screen is a
-                // background native tab; collapse it.
-                continue
-            }
-
-            if minimized && !preferences.showMinimizedWindows { continue }
-            if hidden && !preferences.showHiddenApps { continue }
-
-            let appName = axEntry?.appName ?? app?.localizedName
-                ?? entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
-            // A window with no real title that AX doesn't expose as a standard
-            // window is a hidden helper window (fixed 500×500 placeholder, etc.).
-            let realTitle = nonEmpty(axEntry?.title) ?? nonEmpty(entry[kCGWindowName as String] as? String)
-            if realTitle == nil && axEntry == nil { continue }
-            let title = realTitle ?? appName
-
-            windows.append(WindowInfo(id: id, pid: pid, title: title, appName: appName,
-                                      icon: axEntry?.icon ?? app?.icon, bounds: bounds,
-                                      isMinimized: minimized, isHidden: hidden,
-                                      windowCount: 1, axElement: axEntry?.element))
+            guard let window = classify(entry, context: context, preferences: preferences),
+                  seen.insert(window.id).inserted else { continue }
+            windows.append(window)
         }
 
         let ordered = windows.sorted { lhs, rhs in
-            let l = geometry[lhs.id]?.order ?? Int.max
-            let r = geometry[rhs.id]?.order ?? Int.max
+            let l = context.geometry[lhs.id]?.order ?? Int.max
+            let r = context.geometry[rhs.id]?.order ?? Int.max
             if l != r { return l < r }
             return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
         }
-
         return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseDuplicates(ordered)))
+    }
+
+    /// Everything the per-window classification needs, gathered once per invocation.
+    private struct Context {
+        let regularPIDs: Set<pid_t>
+        let hiddenPIDs: Set<pid_t>
+        let appByPID: [pid_t: NSRunningApplication]
+        let geometry: [CGWindowID: (bounds: CGRect, order: Int)]
+        let currentSpaceIDs: Set<CGWindowID>
+        let ax: [CGWindowID: AXEntry]
+        let ownPID: pid_t
+
+        static func build() -> Context {
+            let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            let appByPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+            let (geometry, currentSpacePIDs) = currentSpaceInfo()
+            return Context(
+                regularPIDs: Set(apps.map(\.processIdentifier)),
+                hiddenPIDs: Set(apps.filter(\.isHidden).map(\.processIdentifier)),
+                appByPID: appByPID,
+                geometry: geometry,
+                currentSpaceIDs: Set(geometry.keys),
+                ax: axIndex(pids: currentSpacePIDs, appByPID: appByPID),
+                ownPID: ProcessInfo.processInfo.processIdentifier)
+        }
+    }
+
+    /// Turns one CGWindowList entry into a switchable window, or nil if it is
+    /// chrome, a background tab, a hidden helper, or filtered out by preferences.
+    private static func classify(_ entry: [String: Any], context: Context,
+                                 preferences: Preferences) -> WindowInfo? {
+        guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+              let id = entry[kCGWindowNumber as String] as? CGWindowID,
+              let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+              pid != context.ownPID, context.regularPIDs.contains(pid),
+              let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
+              let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
+            return nil
+        }
+
+        let axEntry = context.ax[id]
+        let onScreen = context.currentSpaceIDs.contains(id)
+        let minimized = axEntry?.minimized ?? false
+        let hidden = axEntry?.appHidden ?? context.hiddenPIDs.contains(pid)
+
+        if axEntry == nil {
+            // AX fully covers the current Space, so a current-Space window it
+            // omits is chrome; off-Space windows just aren't in AX at all.
+            if !context.ax.isEmpty && onScreen { return nil }
+            if bounds.height < minChromeStripHeight { return nil }
+        } else if !onScreen && !minimized && !hidden {
+            // A current-Space standard window that is not on screen is a
+            // background native tab; collapse it.
+            return nil
+        }
+
+        if minimized && !preferences.showMinimizedWindows { return nil }
+        if hidden && !preferences.showHiddenApps { return nil }
+
+        let app = context.appByPID[pid]
+        let appName = axEntry?.appName ?? app?.localizedName
+            ?? entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
+        // A window with no real title that AX doesn't expose as a standard
+        // window is a hidden helper window (fixed 500×500 placeholder, etc.).
+        let realTitle = nonEmpty(axEntry?.title) ?? nonEmpty(entry[kCGWindowName as String] as? String)
+        if realTitle == nil && axEntry == nil { return nil }
+
+        return WindowInfo(id: id, pid: pid, title: realTitle ?? appName, appName: appName,
+                          icon: axEntry?.icon ?? app?.icon, bounds: bounds,
+                          isMinimized: minimized, isHidden: hidden,
+                          windowCount: 1, axElement: axEntry?.element)
     }
 
     // Folds windows that the user cannot tell apart, keeping the first (front /
