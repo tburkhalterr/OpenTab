@@ -10,14 +10,17 @@ enum ActiveScreen {
             ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    // CGWindow bounds use a top-left origin anchored to the primary display,
-    // whereas NSScreen frames are bottom-left, so the y axis must be flipped.
     static func rectInCGSpace() -> CGRect? {
         guard let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height else {
             return nil
         }
-        let frame = current().frame
-        return CGRect(x: frame.origin.x, y: primaryHeight - frame.maxY,
-                      width: frame.width, height: frame.height)
+        return cgRect(for: current().frame, primaryHeight: primaryHeight)
+    }
+
+    // CGWindow bounds use a top-left origin anchored to the primary display,
+    // whereas NSScreen frames are bottom-left, so the y axis must be flipped.
+    static func cgRect(for frame: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: frame.origin.x, y: primaryHeight - frame.maxY,
+               width: frame.width, height: frame.height)
     }
 }

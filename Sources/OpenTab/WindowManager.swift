@@ -304,6 +304,10 @@ enum WindowManager {
         guard scope == .activeScreen, let screenRect = ActiveScreen.rectInCGSpace() else {
             return windows
         }
-        return windows.filter { $0.bounds.intersects(screenRect) }
+        return self.windows(windows, intersecting: screenRect)
+    }
+
+    static func windows(_ windows: [WindowInfo], intersecting rect: CGRect) -> [WindowInfo] {
+        windows.filter { $0.bounds.intersects(rect) }
     }
 }

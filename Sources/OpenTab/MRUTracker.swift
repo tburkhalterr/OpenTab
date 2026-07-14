@@ -34,10 +34,14 @@ final class MRUTracker {
     /// Known windows first in MRU order, then any unseen window keeping the
     /// original (z-order) sequence it arrived in.
     func ordered(_ windows: [WindowInfo]) -> [WindowInfo] {
-        let rankByID = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        Self.ordered(windows, byMRU: order)
+    }
+
+    static func ordered(_ windows: [WindowInfo], byMRU mru: [CGWindowID]) -> [WindowInfo] {
+        let rankByID = Dictionary(uniqueKeysWithValues: mru.enumerated().map { ($1, $0) })
         return windows.enumerated().sorted { lhs, rhs in
-            let l = rankByID[lhs.element.id] ?? (order.count + lhs.offset)
-            let r = rankByID[rhs.element.id] ?? (order.count + rhs.offset)
+            let l = rankByID[lhs.element.id] ?? (mru.count + lhs.offset)
+            let r = rankByID[rhs.element.id] ?? (mru.count + rhs.offset)
             return l < r
         }.map(\.element)
     }
