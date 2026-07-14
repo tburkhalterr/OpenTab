@@ -7,19 +7,21 @@ final class SwitcherController {
     private var selectedIndex = 0
     private var isActive = false
     private var triggerFlags: NSEvent.ModifierFlags = []
-    private var releaseTimer: Timer?
+    private var triggerKeyCode: CGKeyCode = 0
+    private var pollTimer: Timer?
     private var escapeMonitor: Any?
+    private var keyWasDown = false
+    private var lastAdvance: TimeInterval = 0
 
-    private static let releasePollInterval: TimeInterval = 0.045
+    private static let pollInterval: TimeInterval = 0.03
+    private static let repeatDelay: TimeInterval = 0.13
     private static let escapeKeyCode: UInt16 = 53
 
-    func advance(reverse: Bool) {
-        if !isActive { beginSession() }
-        guard !windows.isEmpty else { return }
-
-        let step = reverse ? -1 : 1
-        selectedIndex = (selectedIndex + step + windows.count) % windows.count
-        panel?.highlight(index: selectedIndex)
+    // Carbon fires only on the initial press; holding the key auto-advances via
+    // key-state polling below, so the hot key just starts the session.
+    func begin(reverse: Bool) {
+        if isActive { return }
+        beginSession(reverse: reverse)
     }
 
     func commit() {
@@ -35,26 +37,43 @@ final class SwitcherController {
         endSession()
     }
 
-    private func endSession() {
-        isActive = false
-        stopReleaseWatch()
-        stopEscapeWatch()
-        panel?.orderOut(nil)
-    }
+    // MARK: - Session lifecycle
 
-    private func beginSession() {
+    private func beginSession(reverse: Bool) {
         let prefs = PreferencesStore.shared.preferences
         let listed = WindowManager.listWindows(preferences: prefs)
         windows = prefs.layout == .appOnly ? collapseByApp(listed) : listed
-        selectedIndex = windows.count > 1 ? 1 : 0
+        selectedIndex = initialIndex(reverse: reverse)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
+        triggerKeyCode = CGKeyCode(prefs.triggerKeyCode)
+        keyWasDown = true
+        lastAdvance = ProcessInfo.processInfo.systemUptime
         isActive = true
 
         let panel = panel ?? makePanel()
         panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
         panel.highlight(index: selectedIndex)
-        startReleaseWatch()
+        startPoll()
         startEscapeWatch()
+    }
+
+    private func initialIndex(reverse: Bool) -> Int {
+        guard windows.count > 1 else { return 0 }
+        return reverse ? windows.count - 1 : 1
+    }
+
+    private func advance(reverse: Bool) {
+        guard isActive, !windows.isEmpty else { return }
+        let step = reverse ? -1 : 1
+        selectedIndex = (selectedIndex + step + windows.count) % windows.count
+        panel?.highlight(index: selectedIndex)
+    }
+
+    private func endSession() {
+        isActive = false
+        stopPoll()
+        stopEscapeWatch()
+        panel?.orderOut(nil)
     }
 
     private func collapseByApp(_ windows: [WindowInfo]) -> [WindowInfo] {
@@ -75,22 +94,41 @@ final class SwitcherController {
         return panel
     }
 
-    private func startReleaseWatch() {
-        stopReleaseWatch()
-        let timer = Timer(timeInterval: Self.releasePollInterval, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let current = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if current.intersection(self.triggerFlags) != self.triggerFlags {
-                self.commit()
-            }
+    // MARK: - Key-state polling (commit on modifier release, advance on key hold)
+
+    private func startPoll() {
+        stopPoll()
+        let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            self?.poll()
         }
         RunLoop.current.add(timer, forMode: .common)
-        releaseTimer = timer
+        pollTimer = timer
     }
 
-    private func stopReleaseWatch() {
-        releaseTimer?.invalidate()
-        releaseTimer = nil
+    private func poll() {
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.intersection(triggerFlags) != triggerFlags {
+            commit()
+            return
+        }
+
+        let keyDown = CGEventSource.keyState(.combinedSessionState, key: triggerKeyCode)
+        let reverse = flags.contains(.shift)
+        let now = ProcessInfo.processInfo.systemUptime
+
+        if keyDown && !keyWasDown {
+            advance(reverse: reverse)
+            lastAdvance = now
+        } else if keyDown && keyWasDown && now - lastAdvance >= Self.repeatDelay {
+            advance(reverse: reverse)
+            lastAdvance = now
+        }
+        keyWasDown = keyDown
+    }
+
+    private func stopPoll() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     private func startEscapeWatch() {

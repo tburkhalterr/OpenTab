@@ -5,3 +5,5 @@
 DerivedData/
 .DS_Store
 .claude/settings.local.json
+
+Resources/AppIcon.icns

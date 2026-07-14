@@ -29,6 +29,9 @@ app: build
 	mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
 	cp "$(BUILD_DIR)/$(APP_NAME)" "$(CONTENTS)/MacOS/$(APP_NAME)"
 	cp Info.plist "$(CONTENTS)/Info.plist"
+	iconutil -c icns Resources/AppIcon.iconset -o "$(CONTENTS)/Resources/AppIcon.icns"
+	cp Resources/menubar/MenubarIcon.png "$(CONTENTS)/Resources/MenubarIcon.png"
+	cp Resources/menubar/MenubarIcon@2x.png "$(CONTENTS)/Resources/MenubarIcon@2x.png"
 	$(MAKE) sign
 	@echo "Built and signed $(APP_BUNDLE) with identity: $(SIGN_ID)"
 

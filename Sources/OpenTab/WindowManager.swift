@@ -113,15 +113,14 @@ enum WindowManager {
         return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseNativeTabs(ordered)))
     }
 
-    // Native tabs on other Spaces can't be spotted via AX (current-Space only),
-    // but every tab in a group shares the exact same frame, so one window per
-    // (app, frame) collapses them. Only off-Space, non-minimized windows are
-    // eligible: current-Space windows are already uniquely identified and
-    // minimized windows have degenerate frames that must not be folded together.
+    // Every window in a native tab group shares the exact same frame (they are
+    // stacked), so one window per (app, frame) collapses them regardless of
+    // Space. Distinct windows have distinct frames and are never folded.
+    // Minimized windows are exempt: their frames are degenerate and identical.
     private static func collapseNativeTabs(_ windows: [WindowInfo]) -> [WindowInfo] {
         var seen = Set<String>()
         return windows.filter { window in
-            guard window.axElement == nil, !window.isMinimized else { return true }
+            guard !window.isMinimized else { return true }
             let key = "\(window.pid):\(Int(window.bounds.minX)):\(Int(window.bounds.minY))"
                 + ":\(Int(window.bounds.width)):\(Int(window.bounds.height))"
             return seen.insert(key).inserted
@@ -139,11 +138,11 @@ enum WindowManager {
             return
         }
 
-        // Off-Space window: the Space switch is asynchronous, so the window is
-        // not immediately reachable via AX. Switch, activate, then retry the
-        // precise raise until it appears on the now-current Space.
+        // Off-Space window: switch to its Space and raise it there. We must NOT
+        // call NSRunningApplication.activate — that summons the window onto the
+        // current Space (breaking full-screen). The Space switch is async, so
+        // retry the precise raise until the window is reachable on its Space.
         CrossSpaceFocus.switchToSpace(of: window.id)
-        activate(app)
         raiseWhenReachable(pid: window.pid, id: window.id)
     }
 
@@ -166,6 +165,9 @@ enum WindowManager {
 
     private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
         if let axWindow = axWindow(pid: pid, id: id) {
+            // Front the app via AX (does not summon the window across Spaces).
+            let appElement = AXUIElementCreateApplication(pid)
+            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             raise(axWindow)
             return
         }

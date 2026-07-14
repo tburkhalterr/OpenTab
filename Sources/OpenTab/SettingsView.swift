@@ -13,41 +13,44 @@ struct SettingsView: View {
     private var prefs: Binding<Preferences> { $store.preferences }
 
     var body: some View {
-        VStack(spacing: 0) {
-            permissionStatus
-            Divider()
-            TabView {
-                appearanceTab
-                    .tabItem { Label("Appearance", systemImage: "square.grid.2x2") }
-                shortcutTab
-                    .tabItem { Label("Shortcut", systemImage: "keyboard") }
-            }
-            .frame(height: 320)
+        TabView {
+            appearanceTab
+                .tabItem { Label("Appearance", systemImage: "square.grid.2x2") }
+            shortcutTab
+                .tabItem { Label("Shortcut", systemImage: "keyboard") }
+            systemTab
+                .tabItem { Label("System", systemImage: "gearshape") }
         }
-        .frame(width: 460)
+        .frame(width: 460, height: 340)
         .onReceive(ticker) { _ in
             accessibility = AXIsProcessTrusted()
             screenRecording = CGPreflightScreenCaptureAccess()
         }
     }
 
-    private var permissionStatus: some View {
-        VStack(spacing: 6) {
-            permissionRow("Accessibility", granted: accessibility,
-                          hint: "Required to switch windows and read titles.",
-                          open: openAccessibilitySettings)
-            permissionRow("Screen Recording", granted: screenRecording,
-                          hint: "Shows window titles for other Spaces.",
-                          open: openScreenRecordingSettings)
+    private var systemTab: some View {
+        Form {
+            Section {
+                permissionRow("Accessibility", granted: accessibility,
+                              hint: "Required to switch windows and read window titles.",
+                              open: openAccessibilitySettings)
+                permissionRow("Screen Recording", granted: screenRecording,
+                              hint: "Shows window titles for apps on other Spaces.",
+                              open: openScreenRecordingSettings)
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("Grant a permission, then relaunch OpenTab for it to take effect.")
+            }
         }
-        .padding(12)
+        .formStyle(.grouped)
     }
 
     private func permissionRow(_ name: String, granted: Bool, hint: String,
                                open: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(granted ? .green : .red)
+                .foregroundStyle(granted ? .green : .orange)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.system(size: 12, weight: .medium))
                 Text(granted ? "Granted" : hint)
@@ -57,10 +60,7 @@ struct SettingsView: View {
             Spacer()
             if !granted { Button("Open", action: open) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background((granted ? Color.green : Color.red).opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, 2)
     }
 
     private var appearanceTab: some View {

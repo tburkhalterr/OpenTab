@@ -42,11 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-            button.image = NSImage(systemSymbolName: "rectangle.stack",
-                                   accessibilityDescription: "OpenTab")?
-                .withSymbolConfiguration(config)
-            button.image?.isTemplate = true
+            let image = NSImage(named: "MenubarIcon") ?? NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "OpenTab")
+            image?.isTemplate = true
+            image?.size = NSSize(width: 18, height: 18)
+            button.image = image
         }
 
         let menu = NSMenu()
@@ -67,12 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyManager.unregisterAll()
 
         hotKeyManager.register(keyCode: prefs.triggerKeyCode, modifiers: prefs.triggerModifiers) { [weak self] in
-            self?.switcher.advance(reverse: false)
+            self?.switcher.begin(reverse: false)
         }
         if prefs.reverseAddsShift {
             hotKeyManager.register(keyCode: prefs.triggerKeyCode,
                                    modifiers: prefs.triggerModifiers | UInt32(shiftKey)) { [weak self] in
-                self?.switcher.advance(reverse: true)
+                self?.switcher.begin(reverse: true)
             }
         }
     }
