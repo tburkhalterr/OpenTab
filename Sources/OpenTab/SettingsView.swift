@@ -6,6 +6,7 @@ import CoreGraphics
 
 struct SettingsView: View {
     @ObservedObject private var store = PreferencesStore.shared
+    @ObservedObject private var status = AppStatus.shared
     @State private var accessibility = AXIsProcessTrusted()
     @State private var screenRecording = CGPreflightScreenCaptureAccess()
 
@@ -40,10 +41,39 @@ struct SettingsView: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("Grant a permission, then relaunch OpenTab for it to take effect.")
+                Text("Accessibility applies live once granted; Screen Recording needs a relaunch.")
+            }
+
+            Section("Status") {
+                if !status.hotKeyRegistered {
+                    statusRow("Shortcut unavailable", ok: false,
+                              detail: "The shortcut is already used by another app — pick another in the Shortcut tab.")
+                }
+                if !status.axSymbolWorks {
+                    statusRow("Window matching degraded", ok: false,
+                              detail: "OpenTab's window-matching API stopped working (likely a macOS update). Please report it.")
+                }
+                if status.hotKeyRegistered && status.axSymbolWorks {
+                    statusRow("Shortcut & window matching OK", ok: true, detail: nil)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func statusRow(_ title: String, ok: Bool, detail: String?) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(ok ? .green : .orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 12, weight: .medium))
+                if let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+        }
     }
 
     private func permissionRow(_ name: String, granted: Bool, hint: String,

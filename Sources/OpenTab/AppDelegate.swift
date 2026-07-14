@@ -8,22 +8,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsWindow = SettingsWindowController()
     private var statusItem: NSStatusItem?
     private var registeredShortcut: (keyCode: UInt32, modifiers: UInt32, reverse: Bool)?
+    private var permissionPoll: Timer?
+    private var accessibilityStarted = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        requestAccessibilityPermission()
         requestScreenRecordingPermission()
-        MRUTracker.shared.start()
         setupStatusItem()
         reloadHotKeys()
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(reloadHotKeys),
             name: PreferencesStore.didChange, object: nil)
+
+        if requestAccessibilityPermission() {
+            startAccessibilityFeatures()
+        } else {
+            // Poll so the switcher lights up the moment permission is granted,
+            // without forcing the user to relaunch.
+            pollForAccessibility()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        permissionPoll?.invalidate()
         hotKeyManager.unregisterAll()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func startAccessibilityFeatures() {
+        guard !accessibilityStarted else { return }
+        accessibilityStarted = true
+        MRUTracker.shared.start()
+        AppStatus.shared.axSymbolWorks = AX.symbolResolvesWindows()
+    }
+
+    private func pollForAccessibility() {
+        permissionPoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard AXIsProcessTrusted() else { return }
+            timer.invalidate()
+            self?.startAccessibilityFeatures()
+        }
     }
 
     @discardableResult
@@ -72,9 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotKeyManager.unregisterAll()
 
-        hotKeyManager.register(keyCode: prefs.triggerKeyCode, modifiers: prefs.triggerModifiers) { [weak self] in
+        let registered = hotKeyManager.register(keyCode: prefs.triggerKeyCode,
+                                                modifiers: prefs.triggerModifiers) { [weak self] in
             self?.switcher.begin(reverse: false)
         }
+        AppStatus.shared.hotKeyRegistered = registered
+
         if prefs.reverseAddsShift {
             hotKeyManager.register(keyCode: prefs.triggerKeyCode,
                                    modifiers: prefs.triggerModifiers | UInt32(shiftKey)) { [weak self] in

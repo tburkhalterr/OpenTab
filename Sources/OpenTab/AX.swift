@@ -33,6 +33,17 @@ enum AX {
         string(element, kAXSubroleAttribute) == kAXStandardWindowSubrole
     }
 
+    /// Verifies the private `_AXUIElementGetWindow` symbol still maps a real
+    /// window to a CGWindowID. Returns true when it works or cannot be tested
+    /// (no permission / no windows); false only when it definitively fails.
+    static func symbolResolvesWindows() -> Bool {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let first = windows(of: app(pid, timeout: 0.1))?.first else {
+            return true
+        }
+        return windowID(of: first) != nil
+    }
+
     static func focusedWindowID(pid: pid_t) -> CGWindowID? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app(pid), kAXFocusedWindowAttribute as CFString, &value) == .success,

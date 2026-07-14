@@ -24,7 +24,8 @@ final class HotKeyManager {
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
 
-    func register(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) {
+    @discardableResult
+    func register(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) -> Bool {
         let id = nextID
         nextID += 1
 
@@ -32,10 +33,10 @@ final class HotKeyManager {
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetEventDispatcherTarget(), 0, &ref)
         guard status == noErr, let ref else {
-            FileHandle.standardError.write(Data("OpenTab: failed to register hot key (status \(status))\n".utf8))
-            return
+            return false
         }
         registrations[id] = Registration(ref: ref, handler: handler)
+        return true
     }
 
     func unregisterAll() {
