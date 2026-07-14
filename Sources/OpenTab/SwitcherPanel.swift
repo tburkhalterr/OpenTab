@@ -76,7 +76,7 @@ final class SwitcherPanel: NSPanel {
         let content = cellStack.fittingSize
         cellStack.frame = NSRect(origin: .zero, size: content)
 
-        let screen = activeScreen().visibleFrame
+        let screen = ActiveScreen.current().visibleFrame
         let viewport = NSSize(width: min(content.width, screen.width * Self.maxWidthFraction),
                               height: min(content.height, screen.height * Self.maxHeightFraction))
         let inset = Self.outerInset
@@ -85,12 +85,6 @@ final class SwitcherPanel: NSPanel {
         setContentSize(total)
         scrollView.frame = NSRect(x: inset, y: inset, width: viewport.width, height: viewport.height)
         setFrameOrigin(NSPoint(x: screen.midX - total.width / 2, y: screen.midY - total.height / 2))
-    }
-
-    private func activeScreen() -> NSScreen {
-        let mouse = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-            ?? NSScreen.main ?? NSScreen.screens[0]
     }
 }
 

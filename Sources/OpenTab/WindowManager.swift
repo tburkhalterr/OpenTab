@@ -2,11 +2,6 @@
 import Cocoa
 import ApplicationServices
 
-// No public API maps an AXUIElement window to its CGWindowID; AltTab and other
-// switchers rely on this same private symbol.
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
-
 struct WindowInfo: Identifiable {
     let id: CGWindowID
     let pid: pid_t
@@ -181,9 +176,7 @@ enum WindowManager {
     }
 
     private static func axWindow(pid: pid_t, id: CGWindowID) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, axTimeout)
-        return copyWindows(of: app)?.first { windowID(of: $0) == id }
+        AX.windows(of: AX.app(pid, timeout: axTimeout))?.first { AX.windowID(of: $0) == id }
     }
 
     private static func raise(_ axWindow: AXUIElement) {
@@ -202,16 +195,15 @@ enum WindowManager {
 
         for pid in pids {
             guard let app = appByPID[pid] else { continue }
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(appElement, axTimeout)
-            guard let axWindows = copyWindows(of: appElement) else { continue }
+            let appElement = AX.app(pid, timeout: axTimeout)
+            guard let axWindows = AX.windows(of: appElement) else { continue }
 
             let appName = app.localizedName ?? "Unknown"
             for axWindow in axWindows {
-                guard let id = windowID(of: axWindow), isStandardWindow(axWindow) else { continue }
+                guard let id = AX.windowID(of: axWindow), AX.isStandardWindow(axWindow) else { continue }
                 index[id] = AXEntry(element: axWindow,
-                                    title: stringValue(axWindow, kAXTitleAttribute),
-                                    minimized: boolValue(axWindow, kAXMinimizedAttribute),
+                                    title: AX.string(axWindow, kAXTitleAttribute),
+                                    minimized: AX.bool(axWindow, kAXMinimizedAttribute),
                                     appHidden: app.isHidden, appName: appName, icon: app.icon)
             }
         }
@@ -243,44 +235,6 @@ enum WindowManager {
         return (map, pids)
     }
 
-    // MARK: - Accessibility helpers
-
-    private static func copyWindows(of app: AXUIElement) -> [AXUIElement]? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value as? [AXUIElement]
-    }
-
-    private static func windowID(of element: AXUIElement) -> CGWindowID? {
-        var id: CGWindowID = 0
-        return _AXUIElementGetWindow(element, &id) == .success ? id : nil
-    }
-
-    // Real windows have the "AXStandardWindow" subrole; tab bars, title-bar
-    // accessories and other chrome are separate NSWindows we must skip.
-    private static func isStandardWindow(_ element: AXUIElement) -> Bool {
-        stringValue(element, kAXSubroleAttribute) == kAXStandardWindowSubrole
-    }
-
-    private static func boolValue(_ element: AXUIElement, _ attribute: String) -> Bool {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let cfValue = value, CFGetTypeID(cfValue) == CFBooleanGetTypeID() else {
-            return false
-        }
-        return CFBooleanGetValue((cfValue as! CFBoolean))
-    }
-
-    private static func stringValue(_ element: AXUIElement, _ attribute: String) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value as? String
-    }
-
     private static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
@@ -289,22 +243,9 @@ enum WindowManager {
     // MARK: - Scope filtering
 
     private static func applyScope(_ scope: WindowScope, to windows: [WindowInfo]) -> [WindowInfo] {
-        guard scope == .activeScreen, let screenRect = activeScreenRectInCGSpace() else {
+        guard scope == .activeScreen, let screenRect = ActiveScreen.rectInCGSpace() else {
             return windows
         }
         return windows.filter { $0.bounds.intersects(screenRect) }
-    }
-
-    // CGWindow bounds use a top-left origin anchored to the primary display,
-    // whereas NSScreen frames are bottom-left, so the y axis must be flipped.
-    private static func activeScreenRectInCGSpace() -> CGRect? {
-        let mouse = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),
-              let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height else {
-            return nil
-        }
-        let frame = screen.frame
-        return CGRect(x: frame.origin.x, y: primaryHeight - frame.maxY,
-                      width: frame.width, height: frame.height)
     }
 }

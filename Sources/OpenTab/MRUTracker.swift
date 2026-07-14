@@ -2,9 +2,6 @@
 import Cocoa
 import ApplicationServices
 
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
-
 /// Tracks window focus over time so the switcher can order windows by real
 /// most-recently-used rank instead of the instantaneous on-screen z-order.
 final class MRUTracker {
@@ -57,19 +54,8 @@ final class MRUTracker {
     }
 
     private func promoteFocusedWindow(pid: pid_t) {
-        guard let id = focusedWindowID(pid: pid) else { return }
+        guard let id = AX.focusedWindowID(pid: pid) else { return }
         promote(id)
-    }
-
-    private func focusedWindowID(pid: pid_t) -> CGWindowID? {
-        let app = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let element = value, CFGetTypeID(element) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        var id: CGWindowID = 0
-        return _AXUIElementGetWindow((element as! AXUIElement), &id) == .success ? id : nil
     }
 
     private func observeFocusedWindow(pid: pid_t) {

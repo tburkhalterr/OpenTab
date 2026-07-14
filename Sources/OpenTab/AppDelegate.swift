@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let switcher = SwitcherController()
     private let settingsWindow = SettingsWindowController()
     private var statusItem: NSStatusItem?
+    private var registeredShortcut: (keyCode: UInt32, modifiers: UInt32, reverse: Bool)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requestAccessibilityPermission()
@@ -63,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func reloadHotKeys() {
         let prefs = PreferencesStore.shared.preferences
+        let shortcut = (prefs.triggerKeyCode, prefs.triggerModifiers, prefs.reverseAddsShift)
+        // PreferencesStore.didChange fires for any setting; only touch the Carbon
+        // registration when the shortcut itself actually changed.
+        guard registeredShortcut.map({ $0 != shortcut }) ?? true else { return }
+        registeredShortcut = shortcut
+
         hotKeyManager.unregisterAll()
 
         hotKeyManager.register(keyCode: prefs.triggerKeyCode, modifiers: prefs.triggerModifiers) { [weak self] in
