@@ -11,7 +11,8 @@ final class SwitcherController {
     private var triggerKeyCode: CGKeyCode = 0
     private var reverseWithShift = true
     private var pollTimer: Timer?
-    private var escapeMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var eventTapSource: CFRunLoopSource?
     private var keyWasDown = false
     private var lastAdvance: TimeInterval = 0
     private var hoverEnabled = false
@@ -20,6 +21,17 @@ final class SwitcherController {
     private static let repeatDelay: TimeInterval = 0.13
     private static let hoverGrace: TimeInterval = 0.25
     private static let escapeKeyCode = UInt16(kVK_Escape)
+    private static let refreshDelay: TimeInterval = 0.15
+    private static let arrowKeys: [(code: CGKeyCode, reverse: Bool)] = [
+        (CGKeyCode(kVK_LeftArrow), true), (CGKeyCode(kVK_UpArrow), true),
+        (CGKeyCode(kVK_RightArrow), false), (CGKeyCode(kVK_DownArrow), false)
+    ]
+    private static let actionKeys: [(code: CGKeyCode, perform: (WindowInfo) -> Void)] = [
+        (CGKeyCode(kVK_ANSI_W), WindowManager.close),
+        (CGKeyCode(kVK_ANSI_M), WindowManager.minimize),
+        (CGKeyCode(kVK_ANSI_H), WindowManager.hide),
+        (CGKeyCode(kVK_ANSI_Q), WindowManager.quit)
+    ]
 
     // Carbon fires only on the initial press; holding the key auto-advances via
     // key-state polling below, so the hot key just starts the session.
@@ -65,7 +77,7 @@ final class SwitcherController {
         panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
         panel.highlight(index: selectedIndex)
         startPoll()
-        startEscapeWatch()
+        startEventTap()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverGrace) { [weak self] in
             self?.hoverEnabled = true
         }
@@ -86,7 +98,7 @@ final class SwitcherController {
     private func endSession() {
         isActive = false
         stopPoll()
-        stopEscapeWatch()
+        stopEventTap()
         panel?.orderOut(nil)
     }
 
@@ -154,20 +166,79 @@ final class SwitcherController {
         keyWasDown = keyDown
     }
 
+    private func scheduleRefresh() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
+            self?.refreshWindows()
+        }
+    }
+
+    private func refreshWindows() {
+        guard isActive else { return }
+        let prefs = PreferencesStore.shared.preferences
+        let listed = WindowManager.listWindows(preferences: prefs)
+        windows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        guard !windows.isEmpty else { cancel(); return }
+        selectedIndex = min(selectedIndex, windows.count - 1)
+        panel?.present(windows: windows, layout: prefs.layout, density: prefs.density)
+        panel?.highlight(index: selectedIndex)
+    }
+
     private func stopPoll() {
         pollTimer?.invalidate()
         pollTimer = nil
     }
 
-    private func startEscapeWatch() {
-        stopEscapeWatch()
-        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == SwitcherController.escapeKeyCode { self?.cancel() }
+    // MARK: - Event tap (intercept & consume in-session keys so they don't leak
+    // to the app underneath — arrows navigate, W/M/H/Q act, Esc cancels)
+
+    private func startEventTap() {
+        stopEventTap()
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, _, event, refcon in
+                guard let refcon else { return Unmanaged.passUnretained(event) }
+                return Unmanaged<SwitcherController>.fromOpaque(refcon)
+                    .takeUnretainedValue().handleTapKey(event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
+            return
         }
+        eventTap = tap
+        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        eventTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    private func stopEscapeWatch() {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
+    private func handleTapKey(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard isActive else { return Unmanaged.passUnretained(event) }
+        let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+
+        if code == Self.escapeKeyCode {
+            cancel()
+            return nil
+        }
+        if let arrow = Self.arrowKeys.first(where: { $0.code == code }) {
+            advance(reverse: arrow.reverse)
+            return nil
+        }
+        if !isRepeat, let action = Self.actionKeys.first(where: { $0.code == code }) {
+            if windows.indices.contains(selectedIndex) {
+                action.perform(windows[selectedIndex])
+                scheduleRefresh()
+            }
+            return nil
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func stopEventTap() {
+        if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
+        if let eventTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes) }
+        eventTap = nil
+        eventTapSource = nil
     }
 }

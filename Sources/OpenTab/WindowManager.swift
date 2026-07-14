@@ -210,6 +210,30 @@ enum WindowManager {
         AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
     }
 
+    // MARK: - Actions on a highlighted window
+
+    static func close(_ window: WindowInfo) {
+        guard let axWindow = window.axElement else { return }
+        var button: CFTypeRef?
+        if AXUIElementCopyAttributeValue(axWindow, kAXCloseButtonAttribute as CFString, &button) == .success,
+           let button {
+            AXUIElementPerformAction((button as! AXUIElement), kAXPressAction as CFString)
+        }
+    }
+
+    static func minimize(_ window: WindowInfo) {
+        guard let axWindow = window.axElement else { return }
+        AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+    }
+
+    static func hide(_ window: WindowInfo) {
+        NSRunningApplication(processIdentifier: window.pid)?.hide()
+    }
+
+    static func quit(_ window: WindowInfo) {
+        NSRunningApplication(processIdentifier: window.pid)?.terminate()
+    }
+
     // MARK: - AX window index (real titles + per-window element)
 
     // Only the apps that own a current-Space window need AX: their standard
