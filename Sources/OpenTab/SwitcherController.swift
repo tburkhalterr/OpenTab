@@ -26,9 +26,12 @@ final class SwitcherController {
 
     func commit() {
         guard isActive else { return }
+        let target = windows.indices.contains(selectedIndex) ? windows[selectedIndex] : nil
         endSession()
-        if windows.indices.contains(selectedIndex) {
-            WindowManager.focus(windows[selectedIndex])
+        // Focus on the next runloop tick so the panel is fully gone first;
+        // activating while it is still ordering out makes the Space switch flaky.
+        if let target {
+            DispatchQueue.main.async { WindowManager.focus(target) }
         }
     }
 
@@ -112,7 +115,7 @@ final class SwitcherController {
             return
         }
 
-        let keyDown = CGEventSource.keyState(.combinedSessionState, key: triggerKeyCode)
+        let keyDown = CGEventSource.keyState(.hidSystemState, key: triggerKeyCode)
         let reverse = flags.contains(.shift)
         let now = ProcessInfo.processInfo.systemUptime
 

@@ -22,7 +22,7 @@ struct WindowInfo: Identifiable {
 
 enum WindowManager {
     // Cap AX round-trips so an unresponsive app cannot stall the switcher.
-    private static let axTimeout: Float = 0.25
+    private static let axTimeout: Float = 0.1
 
     // Tab bars / title-bar accessories are short strips; drop them when no AX
     // subrole is available to identify a real window (off-Space or no permission).
@@ -42,14 +42,14 @@ enum WindowManager {
     /// AX then enriches current-Space windows with real titles and per-window
     /// elements; off-Space windows fall back to their CG name / app name.
     static func listWindows(preferences: Preferences) -> [WindowInfo] {
-        let ax = axIndex()
         let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         let regularPIDs = Set(apps.map(\.processIdentifier))
         let hiddenPIDs = Set(apps.filter(\.isHidden).map(\.processIdentifier))
         let appByPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let geometry = currentSpaceGeometry()
+        let (geometry, currentSpacePIDs) = currentSpaceInfo()
         let currentSpaceIDs = Set(geometry.keys)
+        let ax = axIndex(pids: currentSpacePIDs, appByPID: appByPID)
         let ownPID = ProcessInfo.processInfo.processIdentifier
 
         guard let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
@@ -110,20 +110,27 @@ enum WindowManager {
             return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
         }
 
-        return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseNativeTabs(ordered)))
+        return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseDuplicates(ordered)))
     }
 
-    // Every window in a native tab group shares the exact same frame (they are
-    // stacked), so one window per (app, frame) collapses them regardless of
-    // Space. Distinct windows have distinct frames and are never folded.
-    // Minimized windows are exempt: their frames are degenerate and identical.
-    private static func collapseNativeTabs(_ windows: [WindowInfo]) -> [WindowInfo] {
-        var seen = Set<String>()
+    // Folds windows that the user cannot tell apart, keeping the first (front /
+    // current-Space) occurrence. Two signals, both scoped per app:
+    //  - same title  → the same logical window seen twice (e.g. a full-screen
+    //    window and its off-Space CG twin), or windows with identical content.
+    //  - same frame  → members of a native tab group (stacked, so identical
+    //    frames) that AX can't disambiguate off-Space.
+    // Minimized windows are exempt (degenerate/identical frames and titles).
+    private static func collapseDuplicates(_ windows: [WindowInfo]) -> [WindowInfo] {
+        var seenTitle = Set<String>()
+        var seenFrame = Set<String>()
         return windows.filter { window in
             guard !window.isMinimized else { return true }
-            let key = "\(window.pid):\(Int(window.bounds.minX)):\(Int(window.bounds.minY))"
+            let titleKey = "\(window.pid)\u{1}\(window.title)"
+            let frameKey = "\(window.pid):\(Int(window.bounds.minX)):\(Int(window.bounds.minY))"
                 + ":\(Int(window.bounds.width)):\(Int(window.bounds.height))"
-            return seen.insert(key).inserted
+            let duplicateTitle = !seenTitle.insert(titleKey).inserted
+            let duplicateFrame = !seenFrame.insert(frameKey).inserted
+            return !(duplicateTitle || duplicateFrame)
         }
     }
 
@@ -132,42 +139,25 @@ enum WindowManager {
         let app = NSRunningApplication(processIdentifier: window.pid)
         if window.isHidden { app?.unhide() }
 
+        // Activate the app the way Cmd+Tab does (targets no specific window), so
+        // macOS actually switches to its Space instead of summoning the window.
+        CrossSpaceFocus.activateApp(pid: window.pid)
+
         if let axWindow = window.axElement {
-            activate(app)
             raise(axWindow)
-            return
-        }
-
-        // Off-Space window: switch to its Space and raise it there. We must NOT
-        // call NSRunningApplication.activate — that summons the window onto the
-        // current Space (breaking full-screen). The Space switch is async, so
-        // retry the precise raise until the window is reachable on its Space.
-        CrossSpaceFocus.switchToSpace(of: window.id)
-        raiseWhenReachable(pid: window.pid, id: window.id)
-    }
-
-    private static func activate(_ app: NSRunningApplication?) {
-        if #available(macOS 14.0, *) {
-            app?.activate()
         } else {
-            app?.activate(options: [.activateIgnoringOtherApps])
+            // Off-Space: once the Space switch has made the window reachable via
+            // AX, raise the exact one. It is on the now-current Space, so this
+            // focuses it rather than summoning it back.
+            raiseWhenReachable(pid: window.pid, id: window.id)
         }
     }
 
-    private static func raise(_ axWindow: AXUIElement) {
-        AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-        AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-    }
-
-    private static let maxRaiseRetries = 8
-    private static let raiseRetryDelay: TimeInterval = 0.06
+    private static let maxRaiseRetries = 10
+    private static let raiseRetryDelay: TimeInterval = 0.05
 
     private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
         if let axWindow = axWindow(pid: pid, id: id) {
-            // Front the app via AX (does not summon the window across Spaces).
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             raise(axWindow)
             return
         }
@@ -183,13 +173,23 @@ enum WindowManager {
         return copyWindows(of: app)?.first { windowID(of: $0) == id }
     }
 
-    // MARK: - AX window index (current Space: real titles + per-window element)
+    private static func raise(_ axWindow: AXUIElement) {
+        AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+    }
 
-    private static func axIndex() -> [CGWindowID: AXEntry] {
+    // MARK: - AX window index (real titles + per-window element)
+
+    // Only the apps that own a current-Space window need AX: their standard
+    // windows drive tab collapsing and precise raising. Off-Space titles come
+    // from CGWindowList, so enumerating every app would just add latency.
+    private static func axIndex(pids: Set<pid_t>, appByPID: [pid_t: NSRunningApplication]) -> [CGWindowID: AXEntry] {
         var index: [CGWindowID: AXEntry] = [:]
 
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        for pid in pids {
+            guard let app = appByPID[pid] else { continue }
+            let appElement = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(appElement, axTimeout)
             guard let axWindows = copyWindows(of: appElement) else { continue }
 
@@ -205,15 +205,16 @@ enum WindowManager {
         return index
     }
 
-    // MARK: - Current-Space geometry (bounds + front-to-back order)
+    // MARK: - Current-Space geometry (bounds + front-to-back order + owner pids)
 
-    private static func currentSpaceGeometry() -> [CGWindowID: (bounds: CGRect, order: Int)] {
+    private static func currentSpaceInfo() -> (geometry: [CGWindowID: (bounds: CGRect, order: Int)], pids: Set<pid_t>) {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let raw = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return [:]
+            return ([:], [])
         }
 
-        var map: [CGWindowID: (CGRect, Int)] = [:]
+        var map: [CGWindowID: (bounds: CGRect, order: Int)] = [:]
+        var pids = Set<pid_t>()
         var order = 0
         for entry in raw {
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
@@ -224,8 +225,9 @@ enum WindowManager {
             }
             map[id] = (bounds, order)
             order += 1
+            if let pid = entry[kCGWindowOwnerPID as String] as? pid_t { pids.insert(pid) }
         }
-        return map
+        return (map, pids)
     }
 
     // MARK: - Accessibility helpers

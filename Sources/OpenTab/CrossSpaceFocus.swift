@@ -1,44 +1,30 @@
 // Sources/OpenTab/CrossSpaceFocus.swift
 import Cocoa
 
-// AX cannot reach windows on other Spaces. To focus one we switch the visible
-// Space to the window's Space via SkyLight; once it is on screen AX can raise
-// it. We deliberately avoid the SLPS "set front process" event sequence — it
-// breaks full-screen windows.
+// Activating an app so macOS switches to its Space (honouring the "switch to a
+// Space with open windows" setting) is exactly what the Dock and Cmd+Tab do via
+// this private SkyLight call. Passing window id 0 activates the app WITHOUT
+// targeting a specific window, which is what lets macOS change Space instead of
+// summoning a window onto the current one. NSRunningApplication.activate() is
+// too weak to trigger this on recent macOS.
 
-@_silgen_name("SLSMainConnectionID")
-private func SLSMainConnectionID() -> Int32
+private struct PSN {
+    var high: UInt32 = 0
+    var low: UInt32 = 0
+}
 
-@_silgen_name("SLSCopySpacesForWindows")
-private func SLSCopySpacesForWindows(_ cid: Int32, _ mask: Int32, _ windows: CFArray) -> CFArray?
+@_silgen_name("GetProcessForPID")
+private func GetProcessForPID(_ pid: pid_t, _ psn: UnsafeMutablePointer<PSN>) -> Int32
 
-@_silgen_name("SLSCopyManagedDisplaySpaces")
-private func SLSCopyManagedDisplaySpaces(_ cid: Int32) -> CFArray?
-
-@_silgen_name("CGSManagedDisplaySetCurrentSpace")
-private func CGSManagedDisplaySetCurrentSpace(_ cid: Int32, _ display: CFString, _ space: UInt64)
+@_silgen_name("_SLPSSetFrontProcessWithOptions")
+private func SLPSSetFrontProcessWithOptions(_ psn: UnsafePointer<PSN>, _ windowID: CGWindowID, _ mode: UInt32) -> Int32
 
 enum CrossSpaceFocus {
-    private static let allSpacesMask: Int32 = 0x7
+    private static let userGenerated: UInt32 = 0x200
 
-    @discardableResult
-    static func switchToSpace(of windowID: CGWindowID) -> Bool {
-        let cid = SLSMainConnectionID()
-        let windows = [windowID] as CFArray
-        guard let target = (SLSCopySpacesForWindows(cid, allSpacesMask, windows) as? [NSNumber])?.first?.uint64Value,
-              let displays = SLSCopyManagedDisplaySpaces(cid) as? [[String: Any]] else {
-            return false
-        }
-
-        for display in displays {
-            guard let identifier = display["Display Identifier"] as? String,
-                  let spaces = display["Spaces"] as? [[String: Any]] else { continue }
-            let ids = spaces.compactMap { ($0["id64"] as? NSNumber)?.uint64Value }
-            if ids.contains(target) {
-                CGSManagedDisplaySetCurrentSpace(cid, identifier as CFString, target)
-                return true
-            }
-        }
-        return false
+    static func activateApp(pid: pid_t) {
+        var psn = PSN()
+        guard GetProcessForPID(pid, &psn) == 0 else { return }
+        _ = SLPSSetFrontProcessWithOptions(&psn, 0, userGenerated)
     }
 }
