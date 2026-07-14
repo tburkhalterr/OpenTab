@@ -1,5 +1,6 @@
 // Sources/OpenTab/SwitcherController.swift
 import Cocoa
+import Carbon.HIToolbox
 
 final class SwitcherController {
     private var panel: SwitcherPanel?
@@ -8,6 +9,7 @@ final class SwitcherController {
     private var isActive = false
     private var triggerFlags: NSEvent.ModifierFlags = []
     private var triggerKeyCode: CGKeyCode = 0
+    private var reverseWithShift = true
     private var pollTimer: Timer?
     private var escapeMonitor: Any?
     private var keyWasDown = false
@@ -15,7 +17,7 @@ final class SwitcherController {
 
     private static let pollInterval: TimeInterval = 0.03
     private static let repeatDelay: TimeInterval = 0.13
-    private static let escapeKeyCode: UInt16 = 53
+    private static let escapeKeyCode = UInt16(kVK_Escape)
 
     // Carbon fires only on the initial press; holding the key auto-advances via
     // key-state polling below, so the hot key just starts the session.
@@ -49,6 +51,7 @@ final class SwitcherController {
         selectedIndex = initialIndex(reverse: reverse)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
         triggerKeyCode = CGKeyCode(prefs.triggerKeyCode)
+        reverseWithShift = prefs.reverseAddsShift
         keyWasDown = true
         lastAdvance = ProcessInfo.processInfo.systemUptime
         isActive = true
@@ -116,7 +119,7 @@ final class SwitcherController {
         }
 
         let keyDown = CGEventSource.keyState(.hidSystemState, key: triggerKeyCode)
-        let reverse = flags.contains(.shift)
+        let reverse = reverseWithShift && flags.contains(.shift)
         let now = ProcessInfo.processInfo.systemUptime
 
         if keyDown && !keyWasDown {

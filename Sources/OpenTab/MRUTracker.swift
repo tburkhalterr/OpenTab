@@ -11,7 +11,6 @@ final class MRUTracker {
 
     private var order: [CGWindowID] = []
     private var axObserver: AXObserver?
-    private var observedApp: AXUIElement?
 
     func start() {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -75,7 +74,6 @@ final class MRUTracker {
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 
         axObserver = observer
-        observedApp = app
     }
 
     private func focusedWindowChanged() {
@@ -87,6 +85,5 @@ final class MRUTracker {
         guard let axObserver else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .defaultMode)
         self.axObserver = nil
-        observedApp = nil
     }
 }

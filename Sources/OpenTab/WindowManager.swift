@@ -157,7 +157,7 @@ enum WindowManager {
         if window.isHidden { app?.unhide() }
 
         if let axWindow = window.axElement {
-            NSRunningApplication(processIdentifier: window.pid)?.activate()
+            app?.activate()
             raise(axWindow)
             return
         }
@@ -172,7 +172,7 @@ enum WindowManager {
         let pid = window.pid
         let id = window.id
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + activationRaiseDelay) {
                 // Setting the app frontmost via AX after activation commits the
                 // Space transition for full-screen apps, which LaunchServices
                 // activation alone leaves in the menu bar without switching.
@@ -185,6 +185,9 @@ enum WindowManager {
 
     private static let maxRaiseRetries = 8
     private static let raiseRetryDelay: TimeInterval = 0.05
+    // Give LaunchServices time to drive the Space switch before committing it
+    // via AX frontmost (needed for full-screen apps).
+    private static let activationRaiseDelay: TimeInterval = 0.12
 
     private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
         if let axWindow = axWindow(pid: pid, id: id) {
