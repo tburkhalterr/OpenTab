@@ -1,4 +1,8 @@
-# OpenTab
+<p align="center">
+  <img src="Resources/AppIcon.iconset/icon_256x256.png" width="120" alt="OpenTab icon">
+</p>
+
+<h1 align="center">OpenTab</h1>
 
 A free, open-source, MIT-licensed **AltTab-style window switcher for macOS**.
 Hold <kbd>⌥ Option</kbd> and press <kbd>⇥ Tab</kbd> to cycle through your open

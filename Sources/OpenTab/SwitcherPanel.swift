@@ -2,6 +2,9 @@
 import Cocoa
 
 final class SwitcherPanel: NSPanel {
+    var onHover: ((Int) -> Void)?
+    var onSelect: ((Int) -> Void)?
+
     private let scrollView = NSScrollView()
     private let cellStack = NSStackView()
     private var cells: [SwitcherCell] = []
@@ -21,6 +24,7 @@ final class SwitcherPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
+        acceptsMouseMovedEvents = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         contentView = makeContainer()
     }
@@ -34,7 +38,12 @@ final class SwitcherPanel: NSPanel {
         cellStack.edgeInsets = NSEdgeInsets(top: metrics.stackInset, left: metrics.stackInset,
                                             bottom: metrics.stackInset, right: metrics.stackInset)
         cells.forEach { $0.removeFromSuperview() }
-        cells = windows.map { SwitcherCell(window: $0, metrics: metrics) }
+        cells = windows.enumerated().map { index, window in
+            let cell = SwitcherCell(window: window, metrics: metrics)
+            cell.onHover = { [weak self] in self?.onHover?(index) }
+            cell.onSelect = { [weak self] in self?.onSelect?(index) }
+            return cell
+        }
         cells.forEach { cellStack.addArrangedSubview($0) }
 
         resizeToContent()
@@ -120,6 +129,9 @@ private struct CellMetrics {
 }
 
 private final class SwitcherCell: NSView {
+    var onHover: (() -> Void)?
+    var onSelect: (() -> Void)?
+
     private let highlight = NSView()
     private let titleLabel: NSTextField
     private let metrics: CellMetrics
@@ -219,6 +231,17 @@ private final class SwitcherCell: NSView {
         highlight.isHidden = !selected
         titleLabel.font = .systemFont(ofSize: metrics.titleSize, weight: selected ? .semibold : .medium)
     }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?() }
+    override func mouseUp(with event: NSEvent) { onSelect?() }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }

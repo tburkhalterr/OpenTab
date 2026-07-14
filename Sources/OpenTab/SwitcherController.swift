@@ -14,9 +14,11 @@ final class SwitcherController {
     private var escapeMonitor: Any?
     private var keyWasDown = false
     private var lastAdvance: TimeInterval = 0
+    private var hoverEnabled = false
 
     private static let pollInterval: TimeInterval = 0.03
     private static let repeatDelay: TimeInterval = 0.13
+    private static let hoverGrace: TimeInterval = 0.25
     private static let escapeKeyCode = UInt16(kVK_Escape)
 
     // Carbon fires only on the initial press; holding the key auto-advances via
@@ -55,12 +57,18 @@ final class SwitcherController {
         keyWasDown = true
         lastAdvance = ProcessInfo.processInfo.systemUptime
         isActive = true
+        // Ignore hover until the pointer actually moves, so the cell under the
+        // cursor when the HUD appears doesn't hijack the initial selection.
+        hoverEnabled = false
 
         let panel = panel ?? makePanel()
         panel.present(windows: windows, layout: prefs.layout, density: prefs.density)
         panel.highlight(index: selectedIndex)
         startPoll()
         startEscapeWatch()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverGrace) { [weak self] in
+            self?.hoverEnabled = true
+        }
     }
 
     private func initialIndex(reverse: Bool) -> Int {
@@ -96,8 +104,22 @@ final class SwitcherController {
 
     private func makePanel() -> SwitcherPanel {
         let panel = SwitcherPanel()
+        panel.onHover = { [weak self] index in self?.hover(index) }
+        panel.onSelect = { [weak self] index in self?.select(index) }
         self.panel = panel
         return panel
+    }
+
+    private func hover(_ index: Int) {
+        guard isActive, hoverEnabled, windows.indices.contains(index) else { return }
+        selectedIndex = index
+        panel?.highlight(index: index)
+    }
+
+    private func select(_ index: Int) {
+        guard isActive, windows.indices.contains(index) else { return }
+        selectedIndex = index
+        commit()
     }
 
     // MARK: - Key-state polling (commit on modifier release, advance on key hold)
