@@ -115,10 +115,13 @@ enum WindowManager {
 
     // Native tabs on other Spaces can't be spotted via AX (current-Space only),
     // but every tab in a group shares the exact same frame, so one window per
-    // (app, frame) collapses them.
+    // (app, frame) collapses them. Only off-Space, non-minimized windows are
+    // eligible: current-Space windows are already uniquely identified and
+    // minimized windows have degenerate frames that must not be folded together.
     private static func collapseNativeTabs(_ windows: [WindowInfo]) -> [WindowInfo] {
         var seen = Set<String>()
         return windows.filter { window in
+            guard window.axElement == nil, !window.isMinimized else { return true }
             let key = "\(window.pid):\(Int(window.bounds.minX)):\(Int(window.bounds.minY))"
                 + ":\(Int(window.bounds.width)):\(Int(window.bounds.height))"
             return seen.insert(key).inserted
@@ -130,22 +133,45 @@ enum WindowManager {
         let app = NSRunningApplication(processIdentifier: window.pid)
         if window.isHidden { app?.unhide() }
 
-        // Off-Space windows have no AX element: switch the visible Space to the
-        // window's Space first, then it becomes reachable and we raise it.
-        if window.axElement == nil {
-            CrossSpaceFocus.switchToSpace(of: window.id)
+        if let axWindow = window.axElement {
+            activate(app)
+            raise(axWindow)
+            return
         }
 
+        // Off-Space window: the Space switch is asynchronous, so the window is
+        // not immediately reachable via AX. Switch, activate, then retry the
+        // precise raise until it appears on the now-current Space.
+        CrossSpaceFocus.switchToSpace(of: window.id)
+        activate(app)
+        raiseWhenReachable(pid: window.pid, id: window.id)
+    }
+
+    private static func activate(_ app: NSRunningApplication?) {
         if #available(macOS 14.0, *) {
             app?.activate()
         } else {
             app?.activate(options: [.activateIgnoringOtherApps])
         }
+    }
 
-        if let axWindow = window.axElement ?? axWindow(pid: window.pid, id: window.id) {
-            AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-            AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+    private static func raise(_ axWindow: AXUIElement) {
+        AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+    }
+
+    private static let maxRaiseRetries = 8
+    private static let raiseRetryDelay: TimeInterval = 0.06
+
+    private static func raiseWhenReachable(pid: pid_t, id: CGWindowID, attempt: Int = 0) {
+        if let axWindow = axWindow(pid: pid, id: id) {
+            raise(axWindow)
+            return
+        }
+        guard attempt < maxRaiseRetries else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + raiseRetryDelay) {
+            raiseWhenReachable(pid: pid, id: id, attempt: attempt + 1)
         }
     }
 
