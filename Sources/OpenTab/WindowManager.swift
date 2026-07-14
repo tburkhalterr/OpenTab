@@ -234,6 +234,15 @@ enum WindowManager {
         NSRunningApplication(processIdentifier: window.pid)?.terminate()
     }
 
+    /// Substring match on window title + app name; empty query keeps everything.
+    static func filter(_ windows: [WindowInfo], query: String) -> [WindowInfo] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return windows }
+        return windows.filter {
+            $0.title.lowercased().contains(q) || $0.appName.lowercased().contains(q)
+        }
+    }
+
     // MARK: - AX window index (real titles + per-window element)
 
     // Only the apps that own a current-Space window need AX: their standard

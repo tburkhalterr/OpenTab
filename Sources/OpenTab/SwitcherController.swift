@@ -16,11 +16,16 @@ final class SwitcherController {
     private var keyWasDown = false
     private var lastAdvance: TimeInterval = 0
     private var hoverEnabled = false
+    private var allWindows: [WindowInfo] = []
+    private var query = ""
+    private var layout: SwitcherLayout = .appGrid
+    private var density: SwitcherDensity = .normal
 
     private static let pollInterval: TimeInterval = 0.03
     private static let repeatDelay: TimeInterval = 0.13
     private static let hoverGrace: TimeInterval = 0.25
-    private static let escapeKeyCode = UInt16(kVK_Escape)
+    private static let escapeKeyCode = CGKeyCode(kVK_Escape)
+    private static let deleteKeyCode = CGKeyCode(kVK_Delete)
     private static let refreshDelay: TimeInterval = 0.15
     private static let arrowKeys: [(code: CGKeyCode, reverse: Bool)] = [
         (CGKeyCode(kVK_LeftArrow), true), (CGKeyCode(kVK_UpArrow), true),
@@ -60,8 +65,12 @@ final class SwitcherController {
 
     private func beginSession(reverse: Bool) {
         let prefs = PreferencesStore.shared.preferences
+        layout = prefs.layout
+        density = prefs.density
+        query = ""
         let listed = WindowManager.listWindows(preferences: prefs)
-        windows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        allWindows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        windows = allWindows
         selectedIndex = initialIndex(reverse: reverse)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
         triggerKeyCode = CGKeyCode(prefs.triggerKeyCode)
@@ -176,10 +185,12 @@ final class SwitcherController {
         guard isActive else { return }
         let prefs = PreferencesStore.shared.preferences
         let listed = WindowManager.listWindows(preferences: prefs)
-        windows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        allWindows = prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+        windows = WindowManager.filter(allWindows, query: query)
         guard !windows.isEmpty else { cancel(); return }
         selectedIndex = min(selectedIndex, windows.count - 1)
-        panel?.present(windows: windows, layout: prefs.layout, density: prefs.density)
+        panel?.present(windows: windows, layout: layout, density: density)
+        panel?.setQuery(query)
         panel?.highlight(index: selectedIndex)
     }
 
@@ -215,24 +226,52 @@ final class SwitcherController {
     private func handleTapKey(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         guard isActive else { return Unmanaged.passUnretained(event) }
         let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let command = event.flags.contains(.maskCommand)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
         if code == Self.escapeKeyCode {
-            cancel()
+            if query.isEmpty { cancel() } else { updateQuery("") }
             return nil
         }
         if let arrow = Self.arrowKeys.first(where: { $0.code == code }) {
             advance(reverse: arrow.reverse)
             return nil
         }
-        if !isRepeat, let action = Self.actionKeys.first(where: { $0.code == code }) {
+        if code == Self.deleteKeyCode {
+            if !query.isEmpty { updateQuery(String(query.dropLast())) }
+            return nil
+        }
+        // Actions are ⌘-modified so plain letters stay free for type-to-filter.
+        if command, !isRepeat, let action = Self.actionKeys.first(where: { $0.code == code }) {
             if windows.indices.contains(selectedIndex) {
                 action.perform(windows[selectedIndex])
                 scheduleRefresh()
             }
             return nil
         }
+        if !command, let character = typedCharacter(event) {
+            updateQuery(query + character)
+            return nil
+        }
         return Unmanaged.passUnretained(event)
+    }
+
+    private func typedCharacter(_ event: CGEvent) -> String? {
+        guard let chars = NSEvent(cgEvent: event)?.charactersIgnoringModifiers,
+              chars.count == 1, let scalar = chars.unicodeScalars.first,
+              scalar.value >= 0x20, scalar.value != 0x7f, scalar.value < 0xF700 else {
+            return nil
+        }
+        return chars
+    }
+
+    private func updateQuery(_ newQuery: String) {
+        query = newQuery
+        windows = WindowManager.filter(allWindows, query: query)
+        selectedIndex = 0
+        panel?.present(windows: windows, layout: layout, density: density)
+        panel?.setQuery(query)
+        panel?.highlight(index: selectedIndex)
     }
 
     private func stopEventTap() {

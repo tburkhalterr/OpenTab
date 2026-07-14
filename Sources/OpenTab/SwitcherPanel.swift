@@ -7,10 +7,13 @@ final class SwitcherPanel: NSPanel {
 
     private let scrollView = NSScrollView()
     private let cellStack = NSStackView()
+    private let queryLabel = NSTextField(labelWithString: "")
     private var cells: [SwitcherCell] = []
     private var windows: [WindowInfo] = []
+    private var query = ""
 
     private static let outerInset: CGFloat = 16
+    private static let queryHeight: CGFloat = 26
     private static let maxWidthFraction: CGFloat = 0.92
     private static let maxHeightFraction: CGFloat = 0.85
 
@@ -59,6 +62,11 @@ final class SwitcherPanel: NSPanel {
         cell.scrollToVisible(cell.bounds.insetBy(dx: -60, dy: -60))
     }
 
+    func setQuery(_ text: String) {
+        query = text
+        resizeToContent()
+    }
+
     override var canBecomeKey: Bool { false }
 
     private func makeContainer() -> NSView {
@@ -77,6 +85,13 @@ final class SwitcherPanel: NSPanel {
         scrollView.documentView = cellStack
         cellStack.translatesAutoresizingMaskIntoConstraints = true
         container.addSubview(scrollView)
+
+        queryLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        queryLabel.textColor = .labelColor
+        queryLabel.alignment = .center
+        queryLabel.lineBreakMode = .byTruncatingHead
+        queryLabel.isHidden = true
+        container.addSubview(queryLabel)
         return container
     }
 
@@ -89,10 +104,15 @@ final class SwitcherPanel: NSPanel {
         let viewport = NSSize(width: min(content.width, screen.width * Self.maxWidthFraction),
                               height: min(content.height, screen.height * Self.maxHeightFraction))
         let inset = Self.outerInset
-        let total = NSSize(width: viewport.width + inset * 2, height: viewport.height + inset * 2)
+        let queryH = query.isEmpty ? 0 : Self.queryHeight
+        let total = NSSize(width: viewport.width + inset * 2,
+                           height: viewport.height + queryH + inset * 2)
 
         setContentSize(total)
         scrollView.frame = NSRect(x: inset, y: inset, width: viewport.width, height: viewport.height)
+        queryLabel.isHidden = query.isEmpty
+        queryLabel.stringValue = "🔍  " + query
+        queryLabel.frame = NSRect(x: inset, y: inset + viewport.height, width: viewport.width, height: queryH)
         setFrameOrigin(NSPoint(x: screen.midX - total.width / 2, y: screen.midY - total.height / 2))
     }
 }

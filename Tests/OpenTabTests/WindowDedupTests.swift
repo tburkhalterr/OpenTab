@@ -46,6 +46,19 @@ final class WindowDedupTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [1, 2])
     }
 
+    func testFilterMatchesTitleAndApp() {
+        let windows = [
+            window(1, pid: 10, title: "Inbox", app: "Mail"),
+            window(2, pid: 20, title: "socraft/opentab", app: "Fork"),
+            window(3, pid: 30, title: "Home", app: "Slack")
+        ]
+        XCTAssertEqual(WindowManager.filter(windows, query: "").map(\.id), [1, 2, 3])
+        XCTAssertEqual(WindowManager.filter(windows, query: "fork").map(\.id), [2])
+        XCTAssertEqual(WindowManager.filter(windows, query: "home").map(\.id), [3])
+        XCTAssertEqual(WindowManager.filter(windows, query: "  MAIL ").map(\.id), [1])
+        XCTAssertTrue(WindowManager.filter(windows, query: "zzz").isEmpty)
+    }
+
     func testCollapseByAppFoldsAndCounts() {
         let windows = [
             window(1, pid: 10, title: "A1", app: "Fork"),
