@@ -3,7 +3,7 @@
 # sha256 to paste below, then attach the zip to a matching GitHub Release.
 cask "opentab" do
   version "0.1.0"
-  sha256 :no_check # replace with the value printed by `make release`
+  sha256 "cc9ff9ff10bcf6b6dbea1b4e05a47edc903992745b75506e0fbfca9883582ca9"
 
   url "https://github.com/tburkhalterr/OpenTab/releases/download/v#{version}/OpenTab-#{version}.zip"
   name "OpenTab"
