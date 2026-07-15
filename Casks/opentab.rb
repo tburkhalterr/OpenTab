@@ -10,7 +10,7 @@ cask "opentab" do
   desc "Free, open-source AltTab-style window switcher for macOS"
   homepage "https://github.com/tburkhalterr/OpenTab"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "OpenTab.app"
 
