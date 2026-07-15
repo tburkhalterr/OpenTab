@@ -1,11 +1,11 @@
 # Casks/opentab.rb
-# Homebrew cask. Publish a zipped OpenTab.app as a GitHub Release asset,
-# then fill in `version` and `sha256` (shasum -a 256 OpenTab.zip).
+# Homebrew cask. Run `make release` to build the zip and print the version +
+# sha256 to paste below, then attach the zip to a matching GitHub Release.
 cask "opentab" do
   version "0.1.0"
-  sha256 :no_check # replace with the real checksum once a release is published
+  sha256 :no_check # replace with the value printed by `make release`
 
-  url "https://github.com/tburkhalterr/OpenTab/releases/download/v#{version}/OpenTab.zip"
+  url "https://github.com/tburkhalterr/OpenTab/releases/download/v#{version}/OpenTab-#{version}.zip"
   name "OpenTab"
   desc "Free, open-source AltTab-style window switcher for macOS"
   homepage "https://github.com/tburkhalterr/OpenTab"

@@ -7,3 +7,5 @@ DerivedData/
 .claude/settings.local.json
 
 Resources/AppIcon.icns
+
+*.zip

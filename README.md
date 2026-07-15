@@ -63,15 +63,27 @@ After this, rebuilds reuse the same identity and the grant sticks.
 
 ## Install with Homebrew
 
-Once a signed release is published:
+Once a release is published:
 
 ```bash
 brew install --cask tburkhalterr/tap/opentab
 ```
 
-The cask lives in `Casks/opentab.rb`. To ship it: zip `OpenTab.app`, attach it
-to a GitHub Release, then set `version` and `sha256` in the cask and push it to
-a `homebrew-tap` repository.
+### Cutting a release
+
+```bash
+make release        # builds, zips OpenTab.app, prints version + sha256
+```
+
+Then:
+1. `gh release create v<version> OpenTab-<version>.zip --generate-notes`
+2. Paste the printed `version` / `sha256` into `Casks/opentab.rb`
+3. Push `Casks/opentab.rb` to a `tburkhalterr/homebrew-tap` repo
+
+> For a public release that passes Gatekeeper on other Macs, sign with a
+> **Developer ID** identity and **notarize** (`xcrun notarytool`) before zipping.
+> The bundled `make` flow uses a self-signed dev cert, which only suits your own
+> machine.
 
 ## Architecture
 

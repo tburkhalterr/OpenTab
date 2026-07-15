@@ -17,7 +17,7 @@ ifeq ($(SIGN_ID),)
 SIGN_ID := -
 endif
 
-.PHONY: all build test lint app sign run clean cert
+.PHONY: all build test lint app sign run clean cert release
 
 all: app
 
@@ -52,6 +52,10 @@ run: app
 # so the Accessibility permission persists across rebuilds.
 cert:
 	./scripts/create-dev-cert.sh
+
+# Build + zip the app and print the version/sha256 for the Homebrew cask.
+release:
+	./scripts/package-release.sh
 
 clean:
 	rm -rf .build "$(APP_BUNDLE)"
