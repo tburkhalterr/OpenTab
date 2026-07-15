@@ -80,10 +80,23 @@ Then:
 2. Paste the printed `version` / `sha256` into `Casks/opentab.rb`
 3. Push `Casks/opentab.rb` to a `tburkhalterr/homebrew-tap` repo
 
-> For a public release that passes Gatekeeper on other Macs, sign with a
-> **Developer ID** identity and **notarize** (`xcrun notarytool`) before zipping.
-> The bundled `make` flow uses a self-signed dev cert, which only suits your own
-> machine.
+### Notarized release (public distribution)
+
+`make release` uses the self-signed dev cert, which only suits your own machine.
+For a build that passes Gatekeeper everywhere, use a **Developer ID** identity
+and notarize:
+
+```bash
+# one-time: store notary credentials in the keychain
+xcrun notarytool store-credentials OpenTab-Notary \
+  --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-pw"
+
+DEV_ID="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE="OpenTab-Notary" make notarize
+```
+
+This signs (hardened runtime), submits to Apple, staples the ticket, and zips a
+Gatekeeper-passing `OpenTab-<version>.zip` with its sha256.
 
 ## Architecture
 

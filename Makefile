@@ -17,7 +17,7 @@ ifeq ($(SIGN_ID),)
 SIGN_ID := -
 endif
 
-.PHONY: all build test lint app sign run clean cert release
+.PHONY: all build test lint app sign run clean cert release notarize
 
 all: app
 
@@ -56,6 +56,11 @@ cert:
 # Build + zip the app and print the version/sha256 for the Homebrew cask.
 release:
 	./scripts/package-release.sh
+
+# Sign (Developer ID), notarize, staple and zip a Gatekeeper-passing build.
+# Requires DEV_ID and NOTARY_PROFILE env vars — see scripts/notarize-release.sh.
+notarize:
+	./scripts/notarize-release.sh
 
 clean:
 	rm -rf .build "$(APP_BUNDLE)"
