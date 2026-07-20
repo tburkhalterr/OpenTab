@@ -6,16 +6,17 @@ import ScreenCaptureKit
 /// CGWindowID. Only current-Space windows are shareable, so off-Space windows
 /// simply never get a thumbnail and fall back to their app icon.
 enum ThumbnailProvider {
-    private static var cache: [CGWindowID: NSImage] = [:]
+    private static let maxCachedThumbnails = 128
+    private static let cache = ThumbnailCache(capacity: maxCachedThumbnails)
 
-    static func cached(_ id: CGWindowID) -> NSImage? { cache[id] }
+    static func cached(_ id: CGWindowID) -> NSImage? { cache.image(for: id) }
 
     /// Captures any of `ids` not already cached, invoking `each` on the main
     /// thread as each image becomes available. One SCShareableContent lookup is
     /// shared across the batch, and captures run sequentially to bound cost.
     static func capture(_ ids: [CGWindowID], maxSize: CGFloat, each: @escaping (CGWindowID, NSImage) -> Void) {
         guard #available(macOS 14.0, *) else { return }
-        let missing = ids.filter { cache[$0] == nil }
+        let missing = ids.filter { cache.image(for: $0) == nil }
         guard !missing.isEmpty else { return }
 
         Task {
@@ -24,10 +25,8 @@ enum ThumbnailProvider {
             for id in missing {
                 guard let window = content.windows.first(where: { $0.windowID == id }),
                       let image = await captureWindow(window, maxSize: maxSize) else { continue }
-                await MainActor.run {
-                    cache[id] = image
-                    each(id, image)
-                }
+                cache.store(image, for: id)
+                await MainActor.run { each(id, image) }
             }
         }
     }
@@ -46,5 +45,42 @@ enum ThumbnailProvider {
             return nil
         }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
+/// LRU-bounded, lock-guarded store so the process-lifetime cache stays small
+/// and is safe to touch from the capture `Task` as well as the main thread.
+final class ThumbnailCache: @unchecked Sendable {
+    private let capacity: Int
+    private let lock = NSLock()
+    private var storage: [CGWindowID: NSImage] = [:]
+    private var usage: [CGWindowID] = []          // least-recently-used first
+
+    init(capacity: Int) { self.capacity = max(1, capacity) }
+
+    func image(for id: CGWindowID) -> NSImage? {
+        lock.lock(); defer { lock.unlock() }
+        guard let image = storage[id] else { return nil }
+        touch(id)
+        return image
+    }
+
+    func store(_ image: NSImage, for id: CGWindowID) {
+        lock.lock(); defer { lock.unlock() }
+        storage[id] = image
+        touch(id)
+        while usage.count > capacity {
+            storage[usage.removeFirst()] = nil
+        }
+    }
+
+    var count: Int {
+        lock.lock(); defer { lock.unlock() }
+        return storage.count
+    }
+
+    private func touch(_ id: CGWindowID) {
+        if let existing = usage.firstIndex(of: id) { usage.remove(at: existing) }
+        usage.append(id)
     }
 }
