@@ -77,7 +77,7 @@ final class SwitcherController {
         allWindows = usingCache ? cachedWindows : buildWindows(prefs)
         cachedWindows = allWindows
         windows = allWindows
-        selectedIndex = initialIndex(reverse: reverse)
+        selectedIndex = initialIndex(reverse: reverse, count: windows.count)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
         triggerKeyCode = CGKeyCode(prefs.triggerKeyCode)
         reverseWithShift = prefs.reverseAddsShift
@@ -97,7 +97,9 @@ final class SwitcherController {
             self?.hoverEnabled = true
         }
         if usingCache {
-            DispatchQueue.main.async { [weak self] in self?.refreshFromSource(reverse: reverse) }
+            DispatchQueue.main.async { [weak self] in
+                self?.refresh(.keepingWindow(reverse: reverse), skipIfUnchanged: true)
+            }
         }
     }
 
@@ -106,31 +108,49 @@ final class SwitcherController {
         return prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
     }
 
-    // Rebuild the list from the window server and reconcile the shown selection;
-    // skips re-presenting when nothing changed to avoid flicker.
-    private func refreshFromSource(reverse: Bool) {
+    // How to recover the selection after the list is rebuilt.
+    private enum SelectionRecovery {
+        case keepingWindow(reverse: Bool)   // same window if still present, else initial slot
+        case clampingSlot                   // same position, clamped to the new count
+    }
+
+    // Rebuild the list from the window server, reconcile the selection, and
+    // re-present. `skipIfUnchanged` avoids flicker when the id list is identical.
+    private func refresh(_ recovery: SelectionRecovery, skipIfUnchanged: Bool) {
         guard isActive else { return }
         let fresh = buildWindows(PreferencesStore.shared.preferences)
         cachedWindows = fresh
-        guard fresh.map(\.id) != allWindows.map(\.id) else { return }
+        if skipIfUnchanged, fresh.map(\.id) == allWindows.map(\.id) { return }
 
-        let selectedID = windows.indices.contains(selectedIndex) ? windows[selectedIndex].id : nil
+        let previousID = windows.indices.contains(selectedIndex) ? windows[selectedIndex].id : nil
         allWindows = fresh
-        windows = WindowManager.filter(allWindows, query: query)
-        guard !windows.isEmpty else { cancel(); return }
-        if let selectedID, let index = windows.firstIndex(where: { $0.id == selectedID }) {
-            selectedIndex = index
-        } else {
-            selectedIndex = initialIndex(reverse: reverse)
+        let filtered = WindowManager.filter(allWindows, query: query)
+        guard !filtered.isEmpty else { cancel(); return }
+        apply(windows: filtered, selecting: index(for: recovery, in: filtered, previousID: previousID))
+    }
+
+    private func index(for recovery: SelectionRecovery, in list: [WindowInfo], previousID: CGWindowID?) -> Int {
+        switch recovery {
+        case .keepingWindow(let reverse):
+            if let previousID, let found = list.firstIndex(where: { $0.id == previousID }) { return found }
+            return initialIndex(reverse: reverse, count: list.count)
+        case .clampingSlot:
+            return min(selectedIndex, list.count - 1)
         }
+    }
+
+    // Present `newWindows`, sync the query label, and highlight the selection.
+    private func apply(windows newWindows: [WindowInfo], selecting selection: Int) {
+        windows = newWindows
+        selectedIndex = selection
         panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
         panel?.setQuery(query)
         panel?.highlight(index: selectedIndex)
     }
 
-    private func initialIndex(reverse: Bool) -> Int {
-        guard windows.count > 1 else { return 0 }
-        return reverse ? windows.count - 1 : 1
+    private func initialIndex(reverse: Bool, count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        return reverse ? count - 1 : 1
     }
 
     private func advance(reverse: Bool) {
@@ -213,21 +233,8 @@ final class SwitcherController {
 
     private func scheduleRefresh() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
-            self?.refreshWindows()
+            self?.refresh(.clampingSlot, skipIfUnchanged: false)
         }
-    }
-
-    private func refreshWindows() {
-        guard isActive else { return }
-        let prefs = PreferencesStore.shared.preferences
-        allWindows = buildWindows(prefs)
-        cachedWindows = allWindows
-        windows = WindowManager.filter(allWindows, query: query)
-        guard !windows.isEmpty else { cancel(); return }
-        selectedIndex = min(selectedIndex, windows.count - 1)
-        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
-        panel?.setQuery(query)
-        panel?.highlight(index: selectedIndex)
     }
 
     private func stopPoll() {
@@ -303,11 +310,7 @@ final class SwitcherController {
 
     private func updateQuery(_ newQuery: String) {
         query = newQuery
-        windows = WindowManager.filter(allWindows, query: query)
-        selectedIndex = 0
-        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
-        panel?.setQuery(query)
-        panel?.highlight(index: selectedIndex)
+        apply(windows: WindowManager.filter(allWindows, query: query), selecting: 0)
     }
 
     private func stopEventTap() {
