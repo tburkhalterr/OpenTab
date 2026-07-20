@@ -11,6 +11,7 @@ final class SwitcherPanel: NSPanel {
     private var cells: [SwitcherCell] = []
     private var cellByID: [CGWindowID: SwitcherCell] = [:]
     private var windows: [WindowInfo] = []
+    private var builtMetrics: CellMetrics?
     private var query = ""
 
     private static let thumbnailMaxSize: CGFloat = 320
@@ -39,24 +40,60 @@ final class SwitcherPanel: NSPanel {
         self.windows = windows
         let metrics = CellMetrics(layout: layout, density: density, thumbnails: thumbnails)
 
-        cellStack.orientation = (layout == .list) ? .vertical : .horizontal
+        cellStack.orientation = metrics.isList ? .vertical : .horizontal
         cellStack.spacing = metrics.stackSpacing
         cellStack.edgeInsets = NSEdgeInsets(top: metrics.stackInset, left: metrics.stackInset,
                                             bottom: metrics.stackInset, right: metrics.stackInset)
-        cells.forEach { $0.removeFromSuperview() }
-        cellByID.removeAll()
-        cells = windows.enumerated().map { index, window in
-            let cell = SwitcherCell(window: window, metrics: metrics)
-            cell.onHover = { [weak self] in self?.onHover?(index) }
-            cell.onSelect = { [weak self] in self?.onSelect?(index) }
-            cellByID[window.id] = cell
-            return cell
+        // Cells are only re-created for the delta; metrics are fixed within a
+        // session, so a change means a new session and forces a full rebuild.
+        if builtMetrics == metrics {
+            reconcileCells(windows, metrics: metrics)
+        } else {
+            rebuildCells(windows, metrics: metrics)
         }
-        cells.forEach { cellStack.addArrangedSubview($0) }
+        builtMetrics = metrics
 
         resizeToContent()
         orderFrontRegardless()
         if metrics.thumbnails { loadThumbnails(for: windows) }
+    }
+
+    private func rebuildCells(_ windows: [WindowInfo], metrics: CellMetrics) {
+        cells.forEach { $0.removeFromSuperview() }
+        cellByID.removeAll()
+        cells = windows.enumerated().map { index, window in
+            makeCell(window: window, metrics: metrics, index: index)
+        }
+        cells.forEach { cellStack.addArrangedSubview($0) }
+    }
+
+    // Reuse the existing cell for a window whose rendered content is unchanged;
+    // build a fresh one only for new or mutated entries, then reorder in place.
+    private func reconcileCells(_ windows: [WindowInfo], metrics: CellMetrics) {
+        var next: [SwitcherCell] = []
+        var nextByID: [CGWindowID: SwitcherCell] = [:]
+        for (index, window) in windows.enumerated() {
+            let reusable = cellByID[window.id].flatMap { $0.renders(window) ? $0 : nil }
+            let cell = reusable ?? SwitcherCell(window: window, metrics: metrics)
+            cell.onHover = { [weak self] in self?.onHover?(index) }
+            cell.onSelect = { [weak self] in self?.onSelect?(index) }
+            next.append(cell)
+            nextByID[window.id] = cell
+        }
+        guard next != cells else { cellByID = nextByID; return }
+
+        for stale in cells where nextByID[stale.windowInfo.id] !== stale { stale.removeFromSuperview() }
+        for cell in next { cellStack.addArrangedSubview(cell) }
+        cells = next
+        cellByID = nextByID
+    }
+
+    private func makeCell(window: WindowInfo, metrics: CellMetrics, index: Int) -> SwitcherCell {
+        let cell = SwitcherCell(window: window, metrics: metrics)
+        cell.onHover = { [weak self] in self?.onHover?(index) }
+        cell.onSelect = { [weak self] in self?.onSelect?(index) }
+        cellByID[window.id] = cell
+        return cell
     }
 
     // Only current-Space windows (those with an AX element) are capturable.
@@ -134,7 +171,7 @@ final class SwitcherPanel: NSPanel {
     }
 }
 
-private struct CellMetrics {
+private struct CellMetrics: Equatable {
     let isList: Bool
     let thumbnails: Bool
     let iconSize: CGFloat
@@ -182,12 +219,14 @@ private final class SwitcherCell: NSView {
     var onHover: (() -> Void)?
     var onSelect: (() -> Void)?
 
+    let windowInfo: WindowInfo
     private let highlight = NSView()
     private let titleLabel: NSTextField
     private let metrics: CellMetrics
     private var applyThumbnail: ((NSImage) -> Void)?
 
     init(window: WindowInfo, metrics: CellMetrics) {
+        self.windowInfo = window
         self.metrics = metrics
         self.titleLabel = NSTextField(labelWithString: window.title)
         super.init(frame: .zero)
@@ -228,6 +267,17 @@ private final class SwitcherCell: NSView {
     }
 
     func setThumbnail(_ image: NSImage) { applyThumbnail?(image) }
+
+    // Whether this cell already renders `other` — i.e. every content-bearing
+    // field it draws is unchanged, so the view can be reused as-is.
+    func renders(_ other: WindowInfo) -> Bool {
+        windowInfo.id == other.id &&
+        windowInfo.title == other.title &&
+        windowInfo.appName == other.appName &&
+        windowInfo.windowCount == other.windowCount &&
+        windowInfo.isMinimized == other.isMinimized &&
+        windowInfo.isHidden == other.isHidden
+    }
 
     private func makeMedia(window: WindowInfo) -> NSView {
         guard metrics.thumbnails else { return makeIconView(window.icon) }
