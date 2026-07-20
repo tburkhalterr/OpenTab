@@ -50,13 +50,27 @@ enum WindowManager {
             windows.append(window)
         }
 
-        let ordered = windows.sorted { lhs, rhs in
+        let live = withoutStaleWindows(windows, currentSpaceIDs: context.currentSpaceIDs,
+                                       onAnySpace: WindowSpaces.onAnySpace)
+        let ordered = live.sorted { lhs, rhs in
             let l = context.geometry[lhs.id]?.order ?? Int.max
             let r = context.geometry[rhs.id]?.order ?? Int.max
             if l != r { return l < r }
             return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
         }
         return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseDuplicates(ordered)))
+    }
+
+    // Off-Space, non-minimized windows that resolve to no Space are phantoms the
+    // window server still lists after their app closed them (browsers retain
+    // these). On-screen and minimized windows are never suspect.
+    static func withoutStaleWindows(_ windows: [WindowInfo], currentSpaceIDs: Set<CGWindowID>,
+                                    onAnySpace: ([CGWindowID]) -> Set<CGWindowID>) -> [WindowInfo] {
+        let suspect = windows.filter { !$0.isMinimized && !currentSpaceIDs.contains($0.id) }.map(\.id)
+        guard !suspect.isEmpty else { return windows }
+        let dead = Set(suspect).subtracting(onAnySpace(suspect))
+        guard !dead.isEmpty else { return windows }
+        return windows.filter { !dead.contains($0.id) }
     }
 
     /// Everything the per-window classification needs, gathered once per invocation.
