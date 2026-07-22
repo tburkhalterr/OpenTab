@@ -2,8 +2,8 @@
 # Homebrew cask. Run `make release` to build the zip and print the version +
 # sha256 to paste below, then attach the zip to a matching GitHub Release.
 cask "opentab" do
-  version "0.2.0"
-  sha256 "07d49f0df9bebc165ed6036fb76a2af06e390c70dc35191d1d116fa774ed3b67"
+  version "0.3.0"
+  sha256 "cecb9a1925b27067590a03cd973674074673a153009287ed85d6833d8c641718"
 
   url "https://github.com/tburkhalterr/OpenTab/releases/download/v#{version}/OpenTab-#{version}.zip"
   name "OpenTab"
