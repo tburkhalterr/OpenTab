@@ -273,10 +273,10 @@ final class SwitcherController {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask,
-            callback: { _, _, event, refcon in
+            callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 return Unmanaged<SwitcherController>.fromOpaque(refcon)
-                    .takeUnretainedValue().handleTapKey(event)
+                    .takeUnretainedValue().handleTapKey(type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             return
@@ -288,7 +288,14 @@ final class SwitcherController {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    private func handleTapKey(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+    private func handleTapKey(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // macOS disables a tap it deems slow (.tapDisabledByTimeout) or on certain
+        // input bursts (.tapDisabledByUserInput); re-enable it so in-session keys
+        // keep being intercepted instead of leaking to the app under the HUD.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return nil
+        }
         guard isActive else { return Unmanaged.passUnretained(event) }
         let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let command = event.flags.contains(.maskCommand)
