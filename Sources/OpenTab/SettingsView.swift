@@ -125,6 +125,9 @@ struct SettingsView: View {
                     ForEach(SwitcherDensity.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                Picker("Highlight color", selection: prefs.accentColor) {
+                    ForEach(AccentChoice.allCases) { Text($0.label).tag($0) }
+                }
                 Toggle("Live thumbnails (grid)", isOn: prefs.showThumbnails)
             }
             Section("Windows") {
