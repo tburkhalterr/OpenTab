@@ -275,8 +275,15 @@ final class SwitcherController {
             eventsOfInterest: mask,
             callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
-                return Unmanaged<SwitcherController>.fromOpaque(refcon)
-                    .takeUnretainedValue().handleTapKey(type: type, event: event)
+                let controller = Unmanaged<SwitcherController>.fromOpaque(refcon).takeUnretainedValue()
+                // macOS disables a tap it deems slow (.tapDisabledByTimeout) or on
+                // certain input bursts (.tapDisabledByUserInput); re-enable it so
+                // in-session keys keep being intercepted, not leaked to the app.
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    controller.reEnableTap()
+                    return nil
+                }
+                return controller.handleTapKey(event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             return
@@ -288,14 +295,11 @@ final class SwitcherController {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    private func handleTapKey(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // macOS disables a tap it deems slow (.tapDisabledByTimeout) or on certain
-        // input bursts (.tapDisabledByUserInput); re-enable it so in-session keys
-        // keep being intercepted instead of leaking to the app under the HUD.
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
-            return nil
-        }
+    private func reEnableTap() {
+        if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+    }
+
+    private func handleTapKey(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         guard isActive else { return Unmanaged.passUnretained(event) }
         let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let command = event.flags.contains(.maskCommand)
