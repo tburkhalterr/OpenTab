@@ -44,9 +44,11 @@ enum AX {
         return windowID(of: first) != nil
     }
 
-    static func focusedWindowID(pid: pid_t) -> CGWindowID? {
+    // A hung frontmost app must not block the main run loop; cap the round-trip
+    // like every other AX path (WindowManager.axTimeout).
+    static func focusedWindowID(pid: pid_t, timeout: Float = 0.1) -> CGWindowID? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app(pid), kAXFocusedWindowAttribute as CFString, &value) == .success,
+        guard AXUIElementCopyAttributeValue(app(pid, timeout: timeout), kAXFocusedWindowAttribute as CFString, &value) == .success,
               let element = value, CFGetTypeID(element) == AXUIElementGetTypeID() else {
             return nil
         }
