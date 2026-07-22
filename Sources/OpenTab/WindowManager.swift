@@ -275,7 +275,7 @@ enum WindowManager {
         guard let axWindow = window.axElement else { return }
         var button: CFTypeRef?
         if AXUIElementCopyAttributeValue(axWindow, kAXCloseButtonAttribute as CFString, &button) == .success,
-           let button {
+           let button, CFGetTypeID(button) == AXUIElementGetTypeID() {
             AXUIElementPerformAction((button as! AXUIElement), kAXPressAction as CFString)
         }
     }
