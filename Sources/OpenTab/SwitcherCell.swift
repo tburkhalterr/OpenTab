@@ -1,6 +1,21 @@
 // Sources/OpenTab/SwitcherCell.swift
 import Cocoa
 
+extension AccentChoice {
+    var nsColor: NSColor {
+        switch self {
+        case .system:   return .controlAccentColor
+        case .blue:     return .systemBlue
+        case .purple:   return .systemPurple
+        case .pink:     return .systemPink
+        case .red:      return .systemRed
+        case .orange:   return .systemOrange
+        case .green:    return .systemGreen
+        case .graphite: return .systemGray
+        }
+    }
+}
+
 struct CellMetrics: Equatable {
     let isList: Bool
     let thumbnails: Bool
@@ -14,8 +29,10 @@ struct CellMetrics: Equatable {
     let contentSpacing: CGFloat
     let stackSpacing: CGFloat
     let stackInset: CGFloat
+    let accent: NSColor
 
-    init(layout: SwitcherLayout, density: SwitcherDensity, thumbnails: Bool) {
+    init(layout: SwitcherLayout, density: SwitcherDensity, thumbnails: Bool, accent: NSColor) {
+        self.accent = accent
         isList = layout == .list
         let compact = density == .compact
         // Thumbnails only make sense in the roomy grid layout.
@@ -68,7 +85,7 @@ final class SwitcherCell: NSView {
 
         highlight.wantsLayer = true
         highlight.layer?.cornerRadius = 12
-        highlight.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+        highlight.layer?.backgroundColor = metrics.accent.withAlphaComponent(0.22).cgColor
         highlight.isHidden = true
         highlight.translatesAutoresizingMaskIntoConstraints = false
         addSubview(highlight)

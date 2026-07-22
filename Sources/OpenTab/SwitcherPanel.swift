@@ -37,9 +37,10 @@ final class SwitcherPanel: NSPanel {
         contentView = makeContainer()
     }
 
-    func present(windows: [WindowInfo], layout: SwitcherLayout, density: SwitcherDensity, thumbnails: Bool) {
+    func present(windows: [WindowInfo], layout: SwitcherLayout, density: SwitcherDensity,
+                 thumbnails: Bool, accent: NSColor) {
         self.windows = windows
-        let metrics = CellMetrics(layout: layout, density: density, thumbnails: thumbnails)
+        let metrics = CellMetrics(layout: layout, density: density, thumbnails: thumbnails, accent: accent)
 
         cellStack.orientation = metrics.isList ? .vertical : .horizontal
         cellStack.spacing = metrics.stackSpacing

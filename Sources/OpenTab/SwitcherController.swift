@@ -22,6 +22,7 @@ final class SwitcherController {
     private var layout: SwitcherLayout = .appGrid
     private var density: SwitcherDensity = .normal
     private var thumbnails = true
+    private var accent: NSColor = .controlAccentColor
     private var buildGeneration = 0
 
     private static let pollInterval: TimeInterval = 0.03
@@ -73,6 +74,7 @@ final class SwitcherController {
         layout = appsOnly ? .appOnly : prefs.layout
         density = prefs.density
         thumbnails = prefs.showThumbnails
+        accent = prefs.accentColor.nsColor
         query = ""
         // Present instantly from the cached list; the fresh enumeration runs off
         // the main thread and updates the HUD when it lands (refreshAsync below).
@@ -90,7 +92,7 @@ final class SwitcherController {
         hoverEnabled = false
 
         let panel = panel ?? makePanel()
-        panel.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
+        panel.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails, accent: accent)
         panel.highlight(index: selectedIndex)
         startPoll()
         startEventTap()
@@ -160,7 +162,7 @@ final class SwitcherController {
     private func apply(windows newWindows: [WindowInfo], selecting selection: Int) {
         windows = newWindows
         selectedIndex = selection
-        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails)
+        panel?.present(windows: windows, layout: layout, density: density, thumbnails: thumbnails, accent: accent)
         panel?.setQuery(query)
         panel?.highlight(index: selectedIndex)
     }

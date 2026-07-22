@@ -47,6 +47,32 @@ enum WindowScope: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum AccentChoice: String, CaseIterable, Codable, Identifiable {
+    case system
+    case blue
+    case purple
+    case pink
+    case red
+    case orange
+    case green
+    case graphite
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system:   return "System"
+        case .blue:     return "Blue"
+        case .purple:   return "Purple"
+        case .pink:     return "Pink"
+        case .red:      return "Red"
+        case .orange:   return "Orange"
+        case .green:    return "Green"
+        case .graphite: return "Graphite"
+        }
+    }
+}
+
 enum SortOrder: String, CaseIterable, Codable, Identifiable {
     case recent
     case alphabetical
@@ -66,6 +92,7 @@ enum SortOrder: String, CaseIterable, Codable, Identifiable {
 struct Preferences: Codable, Equatable {
     var layout: SwitcherLayout = .appGrid
     var density: SwitcherDensity = .normal
+    var accentColor: AccentChoice = .system
     var showThumbnails: Bool = true
     var scope: WindowScope = .allScreens
     var sortOrder: SortOrder = .recent
@@ -91,6 +118,7 @@ struct Preferences: Codable, Equatable {
         let defaults = Preferences()
         layout = try container.decodeIfPresent(SwitcherLayout.self, forKey: .layout) ?? defaults.layout
         density = try container.decodeIfPresent(SwitcherDensity.self, forKey: .density) ?? defaults.density
+        accentColor = try container.decodeIfPresent(AccentChoice.self, forKey: .accentColor) ?? defaults.accentColor
         showThumbnails = try container.decodeIfPresent(Bool.self, forKey: .showThumbnails) ?? defaults.showThumbnails
         scope = try container.decodeIfPresent(WindowScope.self, forKey: .scope) ?? defaults.scope
         sortOrder = try container.decodeIfPresent(SortOrder.self, forKey: .sortOrder) ?? defaults.sortOrder
