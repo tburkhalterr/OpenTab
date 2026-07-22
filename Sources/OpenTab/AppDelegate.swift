@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         accessibilityStarted = true
         MRUTracker.shared.start()
         AppStatus.shared.axSymbolWorks = AX.symbolResolvesWindows()
+        switcher.warmCache()
     }
 
     private func pollForAccessibility() {

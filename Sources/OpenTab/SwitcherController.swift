@@ -22,6 +22,7 @@ final class SwitcherController {
     private var layout: SwitcherLayout = .appGrid
     private var density: SwitcherDensity = .normal
     private var thumbnails = true
+    private var buildGeneration = 0
 
     private static let pollInterval: TimeInterval = 0.03
     private static let repeatDelay: TimeInterval = 0.13
@@ -71,11 +72,9 @@ final class SwitcherController {
         density = prefs.density
         thumbnails = prefs.showThumbnails
         query = ""
-        // Show the HUD instantly from the previous list, then refresh; the first
-        // press ever (empty cache) builds synchronously.
-        let usingCache = !cachedWindows.isEmpty
-        allWindows = usingCache ? cachedWindows : buildWindows(prefs)
-        cachedWindows = allWindows
+        // Present instantly from the cached list; the fresh enumeration runs off
+        // the main thread and updates the HUD when it lands (refreshAsync below).
+        allWindows = cachedWindows
         windows = allWindows
         selectedIndex = initialIndex(reverse: reverse, count: windows.count)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
@@ -96,16 +95,22 @@ final class SwitcherController {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverGrace) { [weak self] in
             self?.hoverEnabled = true
         }
-        if usingCache {
-            DispatchQueue.main.async { [weak self] in
-                self?.refresh(.keepingWindow(reverse: reverse), skipIfUnchanged: true)
-            }
+        refreshAsync(.keepingWindow(reverse: reverse), skipIfUnchanged: true)
+    }
+
+    /// Warm the cache at launch so the first hotkey press is a cache hit and the
+    /// HUD never waits on a cold enumeration.
+    func warmCache() {
+        buildWindowsAsync(PreferencesStore.shared.preferences) { [weak self] windows in
+            guard let self, !self.isActive else { return }
+            self.cachedWindows = windows
         }
     }
 
-    private func buildWindows(_ prefs: Preferences) -> [WindowInfo] {
-        let listed = WindowManager.listWindows(preferences: prefs)
-        return prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed
+    private func buildWindowsAsync(_ prefs: Preferences, completion: @escaping ([WindowInfo]) -> Void) {
+        WindowManager.listWindowsAsync(preferences: prefs) { listed in
+            completion(prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed)
+        }
     }
 
     // How to recover the selection after the list is rebuilt.
@@ -114,19 +119,24 @@ final class SwitcherController {
         case clampingSlot                   // same position, clamped to the new count
     }
 
-    // Rebuild the list from the window server, reconcile the selection, and
-    // re-present. `skipIfUnchanged` avoids flicker when the id list is identical.
-    private func refresh(_ recovery: SelectionRecovery, skipIfUnchanged: Bool) {
+    // Rebuild the list from the window server off the main thread, reconcile the
+    // selection, and re-present. `skipIfUnchanged` avoids flicker when the id list
+    // is identical. `buildGeneration` drops a stale build superseded by a newer one.
+    private func refreshAsync(_ recovery: SelectionRecovery, skipIfUnchanged: Bool) {
         guard isActive else { return }
-        let fresh = buildWindows(PreferencesStore.shared.preferences)
-        cachedWindows = fresh
-        if skipIfUnchanged, fresh.map(\.id) == allWindows.map(\.id) { return }
+        buildGeneration += 1
+        let generation = buildGeneration
+        buildWindowsAsync(PreferencesStore.shared.preferences) { [weak self] fresh in
+            guard let self, self.isActive, generation == self.buildGeneration else { return }
+            self.cachedWindows = fresh
+            if skipIfUnchanged, fresh.map(\.id) == self.allWindows.map(\.id) { return }
 
-        let previousID = windows.indices.contains(selectedIndex) ? windows[selectedIndex].id : nil
-        allWindows = fresh
-        let filtered = WindowManager.filter(allWindows, query: query)
-        guard !filtered.isEmpty else { cancel(); return }
-        apply(windows: filtered, selecting: index(for: recovery, in: filtered, previousID: previousID))
+            let previousID = self.windows.indices.contains(self.selectedIndex) ? self.windows[self.selectedIndex].id : nil
+            self.allWindows = fresh
+            let filtered = WindowManager.filter(self.allWindows, query: self.query)
+            guard !filtered.isEmpty else { self.cancel(); return }
+            self.apply(windows: filtered, selecting: self.index(for: recovery, in: filtered, previousID: previousID))
+        }
     }
 
     private func index(for recovery: SelectionRecovery, in list: [WindowInfo], previousID: CGWindowID?) -> Int {
@@ -233,7 +243,7 @@ final class SwitcherController {
 
     private func scheduleRefresh() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
-            self?.refresh(.clampingSlot, skipIfUnchanged: false)
+            self?.refreshAsync(.clampingSlot, skipIfUnchanged: false)
         }
     }
 
