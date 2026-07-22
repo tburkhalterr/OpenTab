@@ -327,10 +327,20 @@ final class SwitcherController {
             return nil
         }
         if !command, let character = typedCharacter(event) {
+            if quickSelect(character) { return nil }
             updateQuery(query + character)
             return nil
         }
         return Unmanaged.passUnretained(event)
+    }
+
+    // With no active filter, a digit 1-9 focuses the Nth window directly. Once a
+    // filter is being typed, digits feed the query instead.
+    private func quickSelect(_ character: String) -> Bool {
+        guard query.isEmpty, let digit = Int(character), (1...9).contains(digit),
+              windows.indices.contains(digit - 1) else { return false }
+        select(digit - 1)
+        return true
     }
 
     private func typedCharacter(_ event: CGEvent) -> String? {
