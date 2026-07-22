@@ -10,6 +10,7 @@ final class SwitcherPanel: NSPanel {
     private let queryLabel = NSTextField(labelWithString: "")
     private var cells: [SwitcherCell] = []
     private var cellByID: [CGWindowID: SwitcherCell] = [:]
+    private weak var selectedCell: SwitcherCell?
     private var windows: [WindowInfo] = []
     private var builtMetrics: CellMetrics?
     private var query = ""
@@ -107,12 +108,14 @@ final class SwitcherPanel: NSPanel {
         }
     }
 
+    // Only the outgoing and incoming cells change state; at most one cell is ever
+    // selected, so touching every cell (and reallocating its font) is wasteful.
     func highlight(index: Int) {
-        for (i, cell) in cells.enumerated() {
-            cell.setSelected(i == index)
-        }
-        guard cells.indices.contains(index) else { return }
-        let cell = cells[index]
+        let target = cells.indices.contains(index) ? cells[index] : nil
+        if selectedCell !== target { selectedCell?.setSelected(false) }
+        target?.setSelected(true)
+        selectedCell = target
+        guard let cell = target else { return }
         cell.scrollToVisible(cell.bounds.insetBy(dx: -60, dy: -60))
         cellStack.setAccessibilitySelectedChildren([cell])
         NSAccessibility.post(element: cell, notification: .selectedChildrenChanged)
