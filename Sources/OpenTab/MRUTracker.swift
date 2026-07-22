@@ -31,6 +31,10 @@ final class MRUTracker {
         }
     }
 
+    /// A copy of the current MRU order, taken on the main thread so the ranking
+    /// can be applied on a background enumeration queue without racing `order`.
+    func snapshot() -> [CGWindowID] { order }
+
     /// Known windows first in MRU order, then any unseen window keeping the
     /// original (z-order) sequence it arrived in.
     func ordered(_ windows: [WindowInfo]) -> [WindowInfo] {

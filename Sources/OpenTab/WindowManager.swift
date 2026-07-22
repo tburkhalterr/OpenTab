@@ -32,12 +32,57 @@ enum WindowManager {
         let icon: NSImage?
     }
 
+    /// Main-thread-affine inputs captured once so the heavy CGWindowList/AX/Spaces
+    /// enumeration can run off the main thread without touching AppKit objects
+    /// (`NSRunningApplication`, `NSScreen`, `MRUTracker`) that require it.
+    struct AppSnapshot {
+        let name: String
+        let isHidden: Bool
+        let icon: NSImage?
+    }
+
+    struct Environment {
+        let apps: [pid_t: AppSnapshot]
+        let mruOrder: [CGWindowID]
+        let activeScreenRect: CGRect?
+        let ownPID: pid_t
+
+        // Must run on the main thread.
+        static func capture(preferences: Preferences) -> Environment {
+            let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            let apps = Dictionary(running.map {
+                ($0.processIdentifier, AppSnapshot(name: $0.localizedName ?? "Unknown",
+                                                   isHidden: $0.isHidden, icon: $0.icon))
+            }, uniquingKeysWith: { first, _ in first })
+            return Environment(
+                apps: apps,
+                mruOrder: MRUTracker.shared.snapshot(),
+                activeScreenRect: preferences.scope == .activeScreen ? ActiveScreen.rectInCGSpace() : nil,
+                ownPID: ProcessInfo.processInfo.processIdentifier)
+        }
+    }
+
     /// The window universe comes from CGWindowList in `optionAll` mode, which
     /// spans every Space (unlike AX, which only reports the current Space).
     /// AX then enriches current-Space windows with real titles and per-window
     /// elements; off-Space windows fall back to their CG name / app name.
     static func listWindows(preferences: Preferences) -> [WindowInfo] {
-        let context = Context.build()
+        listWindows(preferences: preferences, environment: .capture(preferences: preferences))
+    }
+
+    /// Captures main-thread state, then runs the AX/CGWindowList enumeration on a
+    /// background queue so a hung app's AX timeouts never block the run loop.
+    /// `completion` is delivered on the main thread.
+    static func listWindowsAsync(preferences: Preferences, completion: @escaping ([WindowInfo]) -> Void) {
+        let environment = Environment.capture(preferences: preferences)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let windows = listWindows(preferences: preferences, environment: environment)
+            DispatchQueue.main.async { completion(windows) }
+        }
+    }
+
+    private static func listWindows(preferences: Preferences, environment: Environment) -> [WindowInfo] {
+        let context = Context.build(environment: environment)
         guard let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -58,7 +103,8 @@ enum WindowManager {
             if l != r { return l < r }
             return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
         }
-        return applyScope(preferences.scope, to: MRUTracker.shared.ordered(collapseDuplicates(ordered)))
+        let ranked = MRUTracker.ordered(collapseDuplicates(ordered), byMRU: environment.mruOrder)
+        return applyScope(preferences.scope, rect: environment.activeScreenRect, to: ranked)
     }
 
     // Off-Space, non-minimized windows that resolve to no Space are phantoms the
@@ -77,24 +123,23 @@ enum WindowManager {
     private struct Context {
         let regularPIDs: Set<pid_t>
         let hiddenPIDs: Set<pid_t>
-        let appByPID: [pid_t: NSRunningApplication]
+        let apps: [pid_t: AppSnapshot]
         let geometry: [CGWindowID: (bounds: CGRect, order: Int)]
         let currentSpaceIDs: Set<CGWindowID>
         let ax: [CGWindowID: AXEntry]
         let ownPID: pid_t
 
-        static func build() -> Context {
-            let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-            let appByPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+        static func build(environment: Environment) -> Context {
+            let apps = environment.apps
             let (geometry, currentSpacePIDs) = currentSpaceInfo()
             return Context(
-                regularPIDs: Set(apps.map(\.processIdentifier)),
-                hiddenPIDs: Set(apps.filter(\.isHidden).map(\.processIdentifier)),
-                appByPID: appByPID,
+                regularPIDs: Set(apps.keys),
+                hiddenPIDs: Set(apps.filter { $0.value.isHidden }.map(\.key)),
+                apps: apps,
                 geometry: geometry,
                 currentSpaceIDs: Set(geometry.keys),
-                ax: axIndex(pids: currentSpacePIDs, appByPID: appByPID),
-                ownPID: ProcessInfo.processInfo.processIdentifier)
+                ax: axIndex(pids: currentSpacePIDs, apps: apps),
+                ownPID: environment.ownPID)
         }
     }
 
@@ -130,8 +175,8 @@ enum WindowManager {
         if minimized && !preferences.showMinimizedWindows { return nil }
         if hidden && !preferences.showHiddenApps { return nil }
 
-        let app = context.appByPID[pid]
-        let appName = axEntry?.appName ?? app?.localizedName
+        let app = context.apps[pid]
+        let appName = axEntry?.appName ?? app?.name
             ?? entry[kCGWindowOwnerName as String] as? String ?? "Unknown"
         // A window with no real title that AX doesn't expose as a standard
         // window is a hidden helper window (fixed 500×500 placeholder, etc.).
@@ -262,15 +307,15 @@ enum WindowManager {
     // Only the apps that own a current-Space window need AX: their standard
     // windows drive tab collapsing and precise raising. Off-Space titles come
     // from CGWindowList, so enumerating every app would just add latency.
-    private static func axIndex(pids: Set<pid_t>, appByPID: [pid_t: NSRunningApplication]) -> [CGWindowID: AXEntry] {
+    private static func axIndex(pids: Set<pid_t>, apps: [pid_t: AppSnapshot]) -> [CGWindowID: AXEntry] {
         var index: [CGWindowID: AXEntry] = [:]
 
         for pid in pids {
-            guard let app = appByPID[pid] else { continue }
+            guard let app = apps[pid] else { continue }
             let appElement = AX.app(pid, timeout: axTimeout)
             guard let axWindows = AX.windows(of: appElement) else { continue }
 
-            let appName = app.localizedName ?? "Unknown"
+            let appName = app.name
             for axWindow in axWindows {
                 guard let id = AX.windowID(of: axWindow), AX.isStandardWindow(axWindow) else { continue }
                 index[id] = AXEntry(element: axWindow,
@@ -314,11 +359,9 @@ enum WindowManager {
 
     // MARK: - Scope filtering
 
-    private static func applyScope(_ scope: WindowScope, to windows: [WindowInfo]) -> [WindowInfo] {
-        guard scope == .activeScreen, let screenRect = ActiveScreen.rectInCGSpace() else {
-            return windows
-        }
-        return self.windows(windows, intersecting: screenRect)
+    private static func applyScope(_ scope: WindowScope, rect: CGRect?, to windows: [WindowInfo]) -> [WindowInfo] {
+        guard scope == .activeScreen, let rect else { return windows }
+        return self.windows(windows, intersecting: rect)
     }
 
     static func windows(_ windows: [WindowInfo], intersecting rect: CGRect) -> [WindowInfo] {
