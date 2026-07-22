@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let switcher = SwitcherController()
     private let settingsWindow = SettingsWindowController()
     private var statusItem: NSStatusItem?
-    private var registeredShortcut: (keyCode: UInt32, modifiers: UInt32, reverse: Bool)?
+    private var registeredHotKeys: (UInt32, UInt32, Bool, Bool, UInt32, UInt32)?
     private var permissionPoll: Timer?
     private var accessibilityStarted = false
 
@@ -89,11 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func reloadHotKeys() {
         let prefs = PreferencesStore.shared.preferences
-        let shortcut = (prefs.triggerKeyCode, prefs.triggerModifiers, prefs.reverseAddsShift)
+        let signature = (prefs.triggerKeyCode, prefs.triggerModifiers, prefs.reverseAddsShift,
+                         prefs.appSwitcherEnabled, prefs.appSwitcherKeyCode, prefs.appSwitcherModifiers)
         // PreferencesStore.didChange fires for any setting; only touch the Carbon
-        // registration when the shortcut itself actually changed.
-        guard registeredShortcut.map({ $0 != shortcut }) ?? true else { return }
-        registeredShortcut = shortcut
+        // registration when a hot key itself actually changed.
+        guard registeredHotKeys.map({ $0 != signature }) ?? true else { return }
+        registeredHotKeys = signature
 
         hotKeyManager.unregisterAll()
 
@@ -107,6 +108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotKeyManager.register(keyCode: prefs.triggerKeyCode,
                                    modifiers: prefs.triggerModifiers | UInt32(shiftKey)) { [weak self] in
                 self?.switcher.begin(reverse: true)
+            }
+        }
+
+        if prefs.appSwitcherEnabled {
+            hotKeyManager.register(keyCode: prefs.appSwitcherKeyCode,
+                                   modifiers: prefs.appSwitcherModifiers) { [weak self] in
+                self?.switcher.begin(reverse: false, appsOnly: true)
+            }
+            hotKeyManager.register(keyCode: prefs.appSwitcherKeyCode,
+                                   modifiers: prefs.appSwitcherModifiers | UInt32(shiftKey)) { [weak self] in
+                self?.switcher.begin(reverse: true, appsOnly: true)
             }
         }
     }
