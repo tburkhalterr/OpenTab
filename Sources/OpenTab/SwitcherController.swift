@@ -23,6 +23,7 @@ final class SwitcherController {
     private var density: SwitcherDensity = .normal
     private var thumbnails = true
     private var accent: NSColor = .controlAccentColor
+    private var enabledActionCodes: Set<CGKeyCode> = []
     private var buildGeneration = 0
 
     private static let pollInterval: TimeInterval = 0.03
@@ -41,6 +42,15 @@ final class SwitcherController {
         (CGKeyCode(kVK_ANSI_H), WindowManager.hide),
         (CGKeyCode(kVK_ANSI_Q), WindowManager.quit)
     ]
+
+    static func enabledActionCodes(for prefs: Preferences) -> Set<CGKeyCode> {
+        Set([
+            prefs.actionCloseEnabled ? CGKeyCode(kVK_ANSI_W) : nil,
+            prefs.actionMinimizeEnabled ? CGKeyCode(kVK_ANSI_M) : nil,
+            prefs.actionHideEnabled ? CGKeyCode(kVK_ANSI_H) : nil,
+            prefs.actionQuitEnabled ? CGKeyCode(kVK_ANSI_Q) : nil
+        ].compactMap { $0 })
+    }
 
     // Carbon fires only on the initial press; holding the key auto-advances via
     // key-state polling below, so the hot key just starts the session.
@@ -75,6 +85,7 @@ final class SwitcherController {
         density = prefs.density
         thumbnails = prefs.showThumbnails
         accent = prefs.accentColor.nsColor
+        enabledActionCodes = Self.enabledActionCodes(for: prefs)
         query = ""
         // Present instantly from the cached list; the fresh enumeration runs off
         // the main thread and updates the HUD when it lands (refreshAsync below).
@@ -328,7 +339,9 @@ final class SwitcherController {
         }
         // Actions are ⌘-modified so plain letters stay free for type-to-filter.
         if command, !isRepeat, let action = Self.actionKeys.first(where: { $0.code == code }) {
-            if windows.indices.contains(selectedIndex) {
+            // Consume the key even when the action is disabled, so a disabled ⌘Q
+            // etc. can't leak through to the app under the HUD and fire there.
+            if enabledActionCodes.contains(code), windows.indices.contains(selectedIndex) {
                 action.perform(windows[selectedIndex])
                 dropSelectedWindow()
                 scheduleRefresh()
