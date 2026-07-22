@@ -54,6 +54,9 @@ final class SwitcherCell: NSView {
     private let titleLabel: NSTextField
     private let metrics: CellMetrics
     private var applyThumbnail: ((NSImage) -> Void)?
+    private var isSelected = false
+    private lazy var normalFont = NSFont.systemFont(ofSize: metrics.titleSize, weight: .medium)
+    private lazy var selectedFont = NSFont.systemFont(ofSize: metrics.titleSize, weight: .semibold)
 
     init(window: WindowInfo, metrics: CellMetrics) {
         self.windowInfo = window
@@ -213,8 +216,10 @@ final class SwitcherCell: NSView {
     }
 
     func setSelected(_ selected: Bool) {
+        guard selected != isSelected else { return }
+        isSelected = selected
         highlight.isHidden = !selected
-        titleLabel.font = .systemFont(ofSize: metrics.titleSize, weight: selected ? .semibold : .medium)
+        titleLabel.font = selected ? selectedFont : normalFont
         setAccessibilitySelected(selected)
     }
 
