@@ -131,6 +131,9 @@ struct SettingsView: View {
                 Picker("Include windows from", selection: prefs.scope) {
                     ForEach(WindowScope.allCases) { Text($0.label).tag($0) }
                 }
+                Picker("Sort order", selection: prefs.sortOrder) {
+                    ForEach(SortOrder.allCases) { Text($0.label).tag($0) }
+                }
                 Toggle("Show minimized windows", isOn: prefs.showMinimizedWindows)
                 Toggle("Show hidden apps", isOn: prefs.showHiddenApps)
             }

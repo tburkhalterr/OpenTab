@@ -103,8 +103,23 @@ enum WindowManager {
             if l != r { return l < r }
             return (lhs.appName, lhs.title) < (rhs.appName, rhs.title)
         }
-        let ranked = MRUTracker.ordered(collapseDuplicates(ordered), byMRU: environment.mruOrder)
+        let ranked = sorted(collapseDuplicates(ordered), by: preferences.sortOrder, mruOrder: environment.mruOrder)
         return applyScope(preferences.scope, rect: environment.activeScreenRect, to: ranked)
+    }
+
+    // Order the collapsed window list per the user's preference. `.recent` keeps
+    // the MRU ranking; the others are stable string sorts on app name / title.
+    static func sorted(_ windows: [WindowInfo], by order: SortOrder, mruOrder: [CGWindowID]) -> [WindowInfo] {
+        switch order {
+        case .recent:
+            return MRUTracker.ordered(windows, byMRU: mruOrder)
+        case .alphabetical:
+            return windows.sorted { ($0.title.lowercased(), $0.appName.lowercased())
+                                  < ($1.title.lowercased(), $1.appName.lowercased()) }
+        case .byApp:
+            return windows.sorted { ($0.appName.lowercased(), $0.title.lowercased())
+                                  < ($1.appName.lowercased(), $1.title.lowercased()) }
+        }
     }
 
     // Off-Space, non-minimized windows that resolve to no Space are phantoms the

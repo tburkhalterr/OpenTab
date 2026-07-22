@@ -51,4 +51,33 @@ final class HelperTests: XCTestCase {
         let b = window(2, bounds: .zero)
         XCTAssertEqual(MRUTracker.ordered([a, b], byMRU: []).map(\.id), [1, 2])
     }
+
+    // MARK: sort order
+
+    private func titled(_ id: CGWindowID, title: String, app: String) -> WindowInfo {
+        WindowInfo(id: id, pid: 1, title: title, appName: app, icon: nil, bounds: .zero,
+                   isMinimized: false, isHidden: false, windowCount: 1, axElement: nil)
+    }
+
+    func testSortRecentUsesMRU() {
+        let a = titled(1, title: "Zed", app: "Zeta")
+        let b = titled(2, title: "Alpha", app: "Acme")
+        let result = WindowManager.sorted([a, b], by: .recent, mruOrder: [2, 1])
+        XCTAssertEqual(result.map(\.id), [2, 1])
+    }
+
+    func testSortAlphabeticalByTitle() {
+        let a = titled(1, title: "Zed", app: "Acme")
+        let b = titled(2, title: "alpha", app: "Zeta")
+        let result = WindowManager.sorted([a, b], by: .alphabetical, mruOrder: [1, 2])
+        XCTAssertEqual(result.map(\.id), [2, 1])
+    }
+
+    func testSortByAppGroupsByAppName() {
+        let a = titled(1, title: "B", app: "Zeta")
+        let b = titled(2, title: "A", app: "Acme")
+        let c = titled(3, title: "A", app: "Zeta")
+        let result = WindowManager.sorted([a, b, c], by: .byApp, mruOrder: [1, 2, 3])
+        XCTAssertEqual(result.map(\.id), [2, 3, 1])
+    }
 }
