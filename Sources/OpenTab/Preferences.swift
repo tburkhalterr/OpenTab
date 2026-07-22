@@ -47,11 +47,28 @@ enum WindowScope: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum SortOrder: String, CaseIterable, Codable, Identifiable {
+    case recent
+    case alphabetical
+    case byApp
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .recent:       return "Recently used"
+        case .alphabetical: return "Alphabetical"
+        case .byApp:        return "Grouped by app"
+        }
+    }
+}
+
 struct Preferences: Codable, Equatable {
     var layout: SwitcherLayout = .appGrid
     var density: SwitcherDensity = .normal
     var showThumbnails: Bool = true
     var scope: WindowScope = .allScreens
+    var sortOrder: SortOrder = .recent
     var showMinimizedWindows: Bool = true
     var showHiddenApps: Bool = false
 
@@ -71,6 +88,7 @@ struct Preferences: Codable, Equatable {
         density = try container.decodeIfPresent(SwitcherDensity.self, forKey: .density) ?? defaults.density
         showThumbnails = try container.decodeIfPresent(Bool.self, forKey: .showThumbnails) ?? defaults.showThumbnails
         scope = try container.decodeIfPresent(WindowScope.self, forKey: .scope) ?? defaults.scope
+        sortOrder = try container.decodeIfPresent(SortOrder.self, forKey: .sortOrder) ?? defaults.sortOrder
         showMinimizedWindows = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedWindows) ?? defaults.showMinimizedWindows
         showHiddenApps = try container.decodeIfPresent(Bool.self, forKey: .showHiddenApps) ?? defaults.showHiddenApps
         triggerKeyCode = try container.decodeIfPresent(UInt32.self, forKey: .triggerKeyCode) ?? defaults.triggerKeyCode
