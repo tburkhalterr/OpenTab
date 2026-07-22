@@ -241,6 +241,18 @@ final class SwitcherController {
         keyWasDown = keyDown
     }
 
+    // Drop the acted-on window from the list immediately. The reconciling refresh
+    // is delayed (refreshDelay), and during that gap a modifier release would
+    // otherwise commit to — and reactivate — the window just closed/minimized/hid.
+    private func dropSelectedWindow() {
+        guard windows.indices.contains(selectedIndex) else { return }
+        let droppedID = windows[selectedIndex].id
+        allWindows.removeAll { $0.id == droppedID }
+        let remaining = WindowManager.filter(allWindows, query: query)
+        guard !remaining.isEmpty else { cancel(); return }
+        apply(windows: remaining, selecting: min(selectedIndex, remaining.count - 1))
+    }
+
     private func scheduleRefresh() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
             self?.refreshAsync(.clampingSlot, skipIfUnchanged: false)
@@ -298,6 +310,7 @@ final class SwitcherController {
         if command, !isRepeat, let action = Self.actionKeys.first(where: { $0.code == code }) {
             if windows.indices.contains(selectedIndex) {
                 action.perform(windows[selectedIndex])
+                dropSelectedWindow()
                 scheduleRefresh()
             }
             return nil
