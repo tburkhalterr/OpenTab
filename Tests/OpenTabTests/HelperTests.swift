@@ -80,4 +80,32 @@ final class HelperTests: XCTestCase {
         let result = WindowManager.sorted([a, b, c], by: .byApp, mruOrder: [1, 2, 3])
         XCTAssertEqual(result.map(\.id), [2, 3, 1])
     }
+
+    // MARK: fuzzy filter
+
+    func testFuzzyMatchesSubsequence() {
+        XCTAssertNotNil(FuzzyMatch.score("github desktop", query: "ghd"))
+        XCTAssertNil(FuzzyMatch.score("safari", query: "xyz"))
+    }
+
+    func testFuzzyContiguousBeatsScattered() {
+        let contiguous = FuzzyMatch.score("github", query: "git")
+        let scattered = FuzzyMatch.score("go into tab", query: "git")
+        XCTAssertNotNil(contiguous)
+        XCTAssertNotNil(scattered)
+        XCTAssertGreaterThan(contiguous!, scattered!)
+    }
+
+    func testFilterRanksBestMatchFirst() {
+        let exact = titled(1, title: "Notes", app: "Notes")
+        let loose = titled(2, title: "Network Utility", app: "System")
+        let result = WindowManager.filter([loose, exact], query: "note")
+        XCTAssertEqual(result.first?.id, 1)
+    }
+
+    func testFilterEmptyQueryKeepsOrder() {
+        let a = titled(1, title: "A", app: "X")
+        let b = titled(2, title: "B", app: "Y")
+        XCTAssertEqual(WindowManager.filter([a, b], query: "  ").map(\.id), [1, 2])
+    }
 }

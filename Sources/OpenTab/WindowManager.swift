@@ -308,13 +308,16 @@ enum WindowManager {
         NSRunningApplication(processIdentifier: window.pid)?.terminate()
     }
 
-    /// Substring match on window title + app name; empty query keeps everything.
+    /// Fuzzy (subsequence) match on window title + app name, ranked best-first;
+    /// empty query keeps everything in its original order.
     static func filter(_ windows: [WindowInfo], query: String) -> [WindowInfo] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return windows }
-        return windows.filter {
-            $0.title.lowercased().contains(q) || $0.appName.lowercased().contains(q)
+        let scored = windows.enumerated().compactMap { offset, window -> (window: WindowInfo, score: Int, offset: Int)? in
+            guard let score = FuzzyMatch.score("\(window.title) \(window.appName)".lowercased(), query: q) else { return nil }
+            return (window, score, offset)
         }
+        return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.offset < $1.offset }.map(\.window)
     }
 
     // MARK: - AX window index (real titles + per-window element)
