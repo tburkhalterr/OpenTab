@@ -137,8 +137,52 @@ struct SettingsView: View {
                 Toggle("Show minimized windows", isOn: prefs.showMinimizedWindows)
                 Toggle("Show hidden apps", isOn: prefs.showHiddenApps)
             }
+            ignoredAppsSection
         }
         .formStyle(.grouped)
+    }
+
+    private struct AppOption: Identifiable { let id: String; let name: String }
+
+    @ViewBuilder private var ignoredAppsSection: some View {
+        Section("Ignored apps") {
+            ForEach(store.preferences.excludedBundleIDs, id: \.self) { bundleID in
+                HStack {
+                    Text(appName(for: bundleID))
+                    Spacer()
+                    Button {
+                        store.preferences.excludedBundleIDs.removeAll { $0 == bundleID }
+                    } label: {
+                        Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            Menu("Add app…") {
+                ForEach(addableApps) { app in
+                    Button(app.name) { store.preferences.excludedBundleIDs.append(app.id) }
+                }
+            }
+        }
+    }
+
+    private var addableApps: [AppOption] {
+        let excluded = Set(store.preferences.excludedBundleIDs)
+        let options = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app -> AppOption? in
+                guard let id = app.bundleIdentifier, !excluded.contains(id) else { return nil }
+                return AppOption(id: id, name: app.localizedName ?? id)
+            }
+        return Dictionary(options.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            .values.sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }
+
+    private func appName(for bundleID: String) -> String {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName
+            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+                .deletingPathExtension().lastPathComponent
+            ?? bundleID
     }
 
     // MARK: - Shortcut

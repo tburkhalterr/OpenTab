@@ -39,6 +39,7 @@ enum WindowManager {
         let name: String
         let isHidden: Bool
         let icon: NSImage?
+        let bundleID: String?
     }
 
     struct Environment {
@@ -52,7 +53,8 @@ enum WindowManager {
             let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
             let apps = Dictionary(running.map {
                 ($0.processIdentifier, AppSnapshot(name: $0.localizedName ?? "Unknown",
-                                                   isHidden: $0.isHidden, icon: $0.icon))
+                                                   isHidden: $0.isHidden, icon: $0.icon,
+                                                   bundleID: $0.bundleIdentifier))
             }, uniquingKeysWith: { first, _ in first })
             return Environment(
                 apps: apps,
@@ -168,6 +170,10 @@ enum WindowManager {
               pid != context.ownPID, context.regularPIDs.contains(pid),
               let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat],
               let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
+            return nil
+        }
+
+        if let bundleID = context.apps[pid]?.bundleID, preferences.excludedBundleIDs.contains(bundleID) {
             return nil
         }
 
