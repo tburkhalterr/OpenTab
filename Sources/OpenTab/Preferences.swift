@@ -71,6 +71,7 @@ struct Preferences: Codable, Equatable {
     var sortOrder: SortOrder = .recent
     var showMinimizedWindows: Bool = true
     var showHiddenApps: Bool = false
+    var excludedBundleIDs: [String] = []
 
     var triggerKeyCode: UInt32 = UInt32(kVK_Tab)
     var triggerModifiers: UInt32 = UInt32(optionKey)
@@ -91,6 +92,7 @@ struct Preferences: Codable, Equatable {
         sortOrder = try container.decodeIfPresent(SortOrder.self, forKey: .sortOrder) ?? defaults.sortOrder
         showMinimizedWindows = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedWindows) ?? defaults.showMinimizedWindows
         showHiddenApps = try container.decodeIfPresent(Bool.self, forKey: .showHiddenApps) ?? defaults.showHiddenApps
+        excludedBundleIDs = try container.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? defaults.excludedBundleIDs
         triggerKeyCode = try container.decodeIfPresent(UInt32.self, forKey: .triggerKeyCode) ?? defaults.triggerKeyCode
         triggerModifiers = try container.decodeIfPresent(UInt32.self, forKey: .triggerModifiers) ?? defaults.triggerModifiers
         reverseAddsShift = try container.decodeIfPresent(Bool.self, forKey: .reverseAddsShift) ?? defaults.reverseAddsShift
