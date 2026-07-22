@@ -77,6 +77,10 @@ struct Preferences: Codable, Equatable {
     var triggerModifiers: UInt32 = UInt32(optionKey)
     var reverseAddsShift: Bool = true
 
+    var appSwitcherEnabled: Bool = false
+    var appSwitcherKeyCode: UInt32 = UInt32(kVK_ANSI_Grave)
+    var appSwitcherModifiers: UInt32 = UInt32(optionKey)
+
     init() {}
 
     // Decode each field independently with a default fallback so that adding a
@@ -96,6 +100,9 @@ struct Preferences: Codable, Equatable {
         triggerKeyCode = try container.decodeIfPresent(UInt32.self, forKey: .triggerKeyCode) ?? defaults.triggerKeyCode
         triggerModifiers = try container.decodeIfPresent(UInt32.self, forKey: .triggerModifiers) ?? defaults.triggerModifiers
         reverseAddsShift = try container.decodeIfPresent(Bool.self, forKey: .reverseAddsShift) ?? defaults.reverseAddsShift
+        appSwitcherEnabled = try container.decodeIfPresent(Bool.self, forKey: .appSwitcherEnabled) ?? defaults.appSwitcherEnabled
+        appSwitcherKeyCode = try container.decodeIfPresent(UInt32.self, forKey: .appSwitcherKeyCode) ?? defaults.appSwitcherKeyCode
+        appSwitcherModifiers = try container.decodeIfPresent(UInt32.self, forKey: .appSwitcherModifiers) ?? defaults.appSwitcherModifiers
     }
 }
 

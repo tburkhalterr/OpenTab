@@ -43,9 +43,11 @@ final class SwitcherController {
 
     // Carbon fires only on the initial press; holding the key auto-advances via
     // key-state polling below, so the hot key just starts the session.
-    func begin(reverse: Bool) {
+    // `appsOnly` forces the one-entry-per-app layout for this session regardless
+    // of the saved layout, so a second hot key can drive an app switcher.
+    func begin(reverse: Bool, appsOnly: Bool = false) {
         if isActive { return }
-        beginSession(reverse: reverse)
+        beginSession(reverse: reverse, appsOnly: appsOnly)
     }
 
     func commit() {
@@ -66,15 +68,15 @@ final class SwitcherController {
 
     // MARK: - Session lifecycle
 
-    private func beginSession(reverse: Bool) {
+    private func beginSession(reverse: Bool, appsOnly: Bool) {
         let prefs = PreferencesStore.shared.preferences
-        layout = prefs.layout
+        layout = appsOnly ? .appOnly : prefs.layout
         density = prefs.density
         thumbnails = prefs.showThumbnails
         query = ""
         // Present instantly from the cached list; the fresh enumeration runs off
         // the main thread and updates the HUD when it lands (refreshAsync below).
-        allWindows = cachedWindows
+        allWindows = collapsed(cachedWindows)
         windows = allWindows
         selectedIndex = initialIndex(reverse: reverse, count: windows.count)
         triggerFlags = ShortcutFormatting.appKitModifiers(from: prefs.triggerModifiers)
@@ -108,9 +110,13 @@ final class SwitcherController {
     }
 
     private func buildWindowsAsync(_ prefs: Preferences, completion: @escaping ([WindowInfo]) -> Void) {
-        WindowManager.listWindowsAsync(preferences: prefs) { listed in
-            completion(prefs.layout == .appOnly ? Self.collapseByApp(listed) : listed)
-        }
+        WindowManager.listWindowsAsync(preferences: prefs, completion: completion)
+    }
+
+    // The cache holds the raw per-window list; collapsing to one entry per app is
+    // applied per session so the window and app-switcher hot keys can share it.
+    private func collapsed(_ windows: [WindowInfo]) -> [WindowInfo] {
+        layout == .appOnly ? Self.collapseByApp(windows) : windows
     }
 
     // How to recover the selection after the list is rebuilt.
@@ -129,10 +135,11 @@ final class SwitcherController {
         buildWindowsAsync(PreferencesStore.shared.preferences) { [weak self] fresh in
             guard let self, self.isActive, generation == self.buildGeneration else { return }
             self.cachedWindows = fresh
-            if skipIfUnchanged, fresh.map(\.id) == self.allWindows.map(\.id) { return }
+            let next = self.collapsed(fresh)
+            if skipIfUnchanged, next.map(\.id) == self.allWindows.map(\.id) { return }
 
             let previousID = self.windows.indices.contains(self.selectedIndex) ? self.windows[self.selectedIndex].id : nil
-            self.allWindows = fresh
+            self.allWindows = next
             let filtered = WindowManager.filter(self.allWindows, query: self.query)
             guard !filtered.isEmpty else { self.cancel(); return }
             self.apply(windows: filtered, selecting: self.index(for: recovery, in: filtered, previousID: previousID))

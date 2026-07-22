@@ -200,8 +200,23 @@ struct SettingsView: View {
                     + "Hold the key to auto-repeat.")
             }
 
+            Section {
+                Toggle("Enable app switcher", isOn: prefs.appSwitcherEnabled)
+                if store.preferences.appSwitcherEnabled {
+                    LabeledContent("Cycle apps") {
+                        ShortcutRecorderButton(keyCode: prefs.appSwitcherKeyCode,
+                                               modifiers: prefs.appSwitcherModifiers)
+                    }
+                }
+            } header: {
+                Text("App switcher")
+            } footer: {
+                Text("A second shortcut that shows one entry per app (⌘Tab-style).")
+            }
+
             Section("While the switcher is open") {
                 shortcutHint("Tab · arrows", "Move selection")
+                shortcutHint("1–9", "Focus that window directly")
                 shortcutHint("Type a name", "Filter the list")
                 shortcutHint("⌘W  ⌘M  ⌘H  ⌘Q", "Close · Minimize · Hide · Quit")
                 shortcutHint("Click", "Focus a window")
