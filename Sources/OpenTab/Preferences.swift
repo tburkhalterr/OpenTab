@@ -108,6 +108,11 @@ struct Preferences: Codable, Equatable {
     var appSwitcherKeyCode: UInt32 = UInt32(kVK_ANSI_Grave)
     var appSwitcherModifiers: UInt32 = UInt32(optionKey)
 
+    var actionCloseEnabled: Bool = true
+    var actionMinimizeEnabled: Bool = true
+    var actionHideEnabled: Bool = true
+    var actionQuitEnabled: Bool = true
+
     init() {}
 
     // Decode each field independently with a default fallback so that adding a
@@ -131,6 +136,10 @@ struct Preferences: Codable, Equatable {
         appSwitcherEnabled = try container.decodeIfPresent(Bool.self, forKey: .appSwitcherEnabled) ?? defaults.appSwitcherEnabled
         appSwitcherKeyCode = try container.decodeIfPresent(UInt32.self, forKey: .appSwitcherKeyCode) ?? defaults.appSwitcherKeyCode
         appSwitcherModifiers = try container.decodeIfPresent(UInt32.self, forKey: .appSwitcherModifiers) ?? defaults.appSwitcherModifiers
+        actionCloseEnabled = try container.decodeIfPresent(Bool.self, forKey: .actionCloseEnabled) ?? defaults.actionCloseEnabled
+        actionMinimizeEnabled = try container.decodeIfPresent(Bool.self, forKey: .actionMinimizeEnabled) ?? defaults.actionMinimizeEnabled
+        actionHideEnabled = try container.decodeIfPresent(Bool.self, forKey: .actionHideEnabled) ?? defaults.actionHideEnabled
+        actionQuitEnabled = try container.decodeIfPresent(Bool.self, forKey: .actionQuitEnabled) ?? defaults.actionQuitEnabled
     }
 }
 

@@ -217,11 +217,21 @@ struct SettingsView: View {
                 Text("A second shortcut that shows one entry per app (⌘Tab-style).")
             }
 
+            Section {
+                Toggle("Close (⌘W)", isOn: prefs.actionCloseEnabled)
+                Toggle("Minimize (⌘M)", isOn: prefs.actionMinimizeEnabled)
+                Toggle("Hide (⌘H)", isOn: prefs.actionHideEnabled)
+                Toggle("Quit (⌘Q)", isOn: prefs.actionQuitEnabled)
+            } header: {
+                Text("In-session actions")
+            } footer: {
+                Text("Disabled actions are ignored while the switcher is open.")
+            }
+
             Section("While the switcher is open") {
                 shortcutHint("Tab · arrows", "Move selection")
                 shortcutHint("1–9", "Focus that window directly")
                 shortcutHint("Type a name", "Filter the list")
-                shortcutHint("⌘W  ⌘M  ⌘H  ⌘Q", "Close · Minimize · Hide · Quit")
                 shortcutHint("Click", "Focus a window")
                 shortcutHint("Esc", "Cancel (clears the filter first)")
             }
