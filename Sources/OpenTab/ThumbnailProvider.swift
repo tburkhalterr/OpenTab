@@ -8,18 +8,25 @@ import ScreenCaptureKit
 enum ThumbnailProvider {
     private static let maxCachedThumbnails = 128
     private static let cache = ThumbnailCache(capacity: maxCachedThumbnails)
+    private static let inFlightLock = NSLock()
+    private static var inFlight: Set<CGWindowID> = []
 
     static func cached(_ id: CGWindowID) -> NSImage? { cache.image(for: id) }
 
-    /// Captures any of `ids` not already cached, invoking `each` on the main
-    /// thread as each image becomes available. One SCShareableContent lookup is
-    /// shared across the batch, and captures run sequentially to bound cost.
+    /// Captures any of `ids` not already cached or already being captured,
+    /// invoking `each` on the main thread as each image becomes available. One
+    /// SCShareableContent lookup is shared across the batch, and captures run
+    /// sequentially to bound cost.
     static func capture(_ ids: [CGWindowID], maxSize: CGFloat, each: @escaping (CGWindowID, NSImage) -> Void) {
         guard #available(macOS 14.0, *) else { return }
-        let missing = ids.filter { cache.image(for: $0) == nil }
+        // Dedupe against in-flight captures too: fast type-to-filtering calls this
+        // on every keystroke and would otherwise re-run the lookup and re-capture
+        // the same not-yet-cached windows concurrently.
+        let missing = claim(ids.filter { cache.image(for: $0) == nil })
         guard !missing.isEmpty else { return }
 
         Task {
+            defer { release(missing) }
             guard let content = try? await SCShareableContent.excludingDesktopWindows(
                 false, onScreenWindowsOnly: true) else { return }
             for id in missing {
@@ -29,6 +36,18 @@ enum ThumbnailProvider {
                 await MainActor.run { each(id, image) }
             }
         }
+    }
+
+    private static func claim(_ ids: [CGWindowID]) -> [CGWindowID] {
+        inFlightLock.lock(); defer { inFlightLock.unlock() }
+        let picked = ids.filter { !inFlight.contains($0) }
+        inFlight.formUnion(picked)
+        return picked
+    }
+
+    private static func release(_ ids: [CGWindowID]) {
+        inFlightLock.lock(); defer { inFlightLock.unlock() }
+        inFlight.subtract(ids)
     }
 
     @available(macOS 14.0, *)
